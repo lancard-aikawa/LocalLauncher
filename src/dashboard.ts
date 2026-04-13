@@ -275,9 +275,11 @@ export class Dashboard {
       const isSel = i === this.sel;
       const arrow = isSel ? `${C.cyan}▶${C.reset} ` : '  ';
 
-      const portStr = config.port
-        ? (dupePorts.has(config.port) ? `${C.red}${config.port}${C.reset}` : String(config.port))
-        : '-';
+      const ps = config.ports ?? [];
+      const portStr = ps.length === 0 ? '-'
+        : ps.length === 1
+          ? (dupePorts.has(ps[0]) ? `${C.red}${ps[0]}${C.reset}` : String(ps[0]))
+          : (dupePorts.has(ps[0]) ? `${C.red}${ps[0]}${C.reset}` : String(ps[0])) + `${C.dim}+${ps.length - 1}${C.reset}`;
       const uptime = status === 'running' ? ` ${C.dim}${fmtUptime(startTime)}${C.reset}` : '';
       const autoMark = config.autoStart ? `${C.dim}★${C.reset}` : ' ';
 

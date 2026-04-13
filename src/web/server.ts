@@ -3,6 +3,7 @@ import { exec } from 'child_process';
 import type { ServerManager } from '../manager';
 import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
 import { upsertServer, removeServer, saveConfig } from '../config';
+import { detectPorts } from '../portDetector';
 
 type WS = ServerWebSocket<unknown>;
 
@@ -70,7 +71,7 @@ export class WebServer {
 
   // ── WebSocket メッセージ処理 ──────────────────────────────────────────────
 
-  private handleWsMessage(_ws: WS, raw: string): void {
+  private handleWsMessage(ws: WS, raw: string): void {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(raw); } catch { return; }
 
@@ -124,6 +125,13 @@ export class WebServer {
         this.cfg = { ...this.cfg, settings };
         saveConfig(this.cfg);
         this.broadcastState();
+        break;
+      }
+
+      case 'detectPorts': {
+        const cwd = (msg.cwd as string | undefined) || process.cwd();
+        const ports = detectPorts(cwd);
+        ws.send(JSON.stringify({ type: 'detectedPorts', ports }));
         break;
       }
     }

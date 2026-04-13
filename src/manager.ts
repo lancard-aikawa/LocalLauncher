@@ -69,12 +69,13 @@ export class ServerManager {
 
     const { config } = state;
 
-    // ポート空き確認
-    if (config.port) {
-      const free = await checkPortAvailable(config.port);
-      this.patch(id, { portConflict: !free });
-      if (!free) this.log(id, `⚠ Port ${config.port} is already in use`);
+    // 全ポートの空き確認
+    let anyConflict = false;
+    for (const port of config.ports ?? []) {
+      const free = await checkPortAvailable(port);
+      if (!free) { anyConflict = true; this.log(id, `⚠ Port ${port} is already in use`); }
     }
+    this.patch(id, { portConflict: anyConflict });
 
     this.patch(id, { status: 'starting', exitCode: undefined, pid: undefined });
     this.log(id, `▶ [${config.runtime}] ${config.command}${config.args?.length ? ' ' + config.args.join(' ') : ''}`);

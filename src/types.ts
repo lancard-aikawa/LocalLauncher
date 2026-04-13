@@ -17,7 +17,7 @@ export interface ServerConfig {
   args?: string[];      // 追加引数
   cwd?: string;         // 作業ディレクトリ（省略時はカレント）
   env?: Record<string, string>; // 追加環境変数
-  port?: number;        // ポート（競合チェック用）
+  ports?: number[];     // ポート番号リスト（競合チェック・URLリンク用）
   autoStart?: boolean;  // ランチャー起動時に自動スタート
   stopCommand?: string; // カスタム停止コマンド（省略時はプロセスキル）
   restartDelay?: number; // 再起動時の待機ms（デフォルト: 1000）

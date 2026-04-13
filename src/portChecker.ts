@@ -15,10 +15,11 @@ export function checkPortAvailable(port: number, host = '127.0.0.1'): Promise<bo
 export function findDuplicatePorts(servers: ServerConfig[]): Map<number, string[]> {
   const map = new Map<number, string[]>();
   for (const s of servers) {
-    if (!s.port) continue;
-    const ids = map.get(s.port) ?? [];
-    ids.push(s.id);
-    map.set(s.port, ids);
+    for (const port of s.ports ?? []) {
+      const ids = map.get(port) ?? [];
+      ids.push(s.id);
+      map.set(port, ids);
+    }
   }
   const dupes = new Map<number, string[]>();
   for (const [port, ids] of map) if (ids.length > 1) dupes.set(port, ids);

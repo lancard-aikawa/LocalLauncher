@@ -166,8 +166,15 @@ body {
   color: var(--text);
 }
 
-.port { color: var(--cyan); }
+.port {
+  color: var(--cyan);
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: border-color .15s;
+}
+.port:hover { border-bottom-color: var(--cyan); }
 .port.conflict { color: var(--yellow); }
+.port.conflict:hover { border-bottom-color: var(--yellow); }
 .auto-star { color: var(--yellow); font-size: 11px; }
 .uptime { color: var(--dim); }
 
@@ -373,6 +380,22 @@ body {
 /* Checkbox */
 .check-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .check-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+
+/* Port detect chips */
+.detect-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.detect-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--bdr); background: var(--sur3);
+  font-size: 11px; transition: border-color .15s, background .15s;
+  user-select: none;
+}
+.detect-chip:hover { border-color: var(--accent); }
+.detect-chip.on { border-color: var(--cyan); background: #0e3340; color: var(--cyan); }
+.detect-chip .chip-port { font-weight: bold; }
+.detect-chip .chip-src { color: var(--dim); font-size: 10px; }
+.detect-chip.on .chip-src { color: #52a8c0; }
+.detect-none { color: var(--dim); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -456,7 +479,8 @@ body {
           </div>
           <div class="form-group">
             <label>ポート番号</label>
-            <input type="number" id="f-port" placeholder="3000" min="1" max="65535">
+            <input type="text" id="f-port" placeholder="3000  または  4000, 9099, 8080">
+            <div class="hint">複数ポートはカンマ・スペース区切りで入力</div>
           </div>
         </div>
 
@@ -473,7 +497,11 @@ body {
 
         <div class="form-group">
           <label>作業ディレクトリ（cwd）</label>
-          <input type="text" id="f-cwd" placeholder="C:\projects\myapp（空でカレント）">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="f-cwd" placeholder="C:\projects\myapp（空でカレント）" style="flex:1">
+            <button type="button" id="btn-detect" class="btn" title="設定ファイルからポートを自動検出">🔍 検出</button>
+          </div>
+          <div id="detect-result" style="display:none;margin-top:8px"></div>
         </div>
 
         <div class="form-group">
@@ -542,8 +570,9 @@ function connectWs() {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if      (msg.type === 'state') onStateMsg(msg.servers, msg.settings);
-    else if (msg.type === 'log')   onLogMsg(msg.id, msg.line);
+    if      (msg.type === 'state')          onStateMsg(msg.servers, msg.settings);
+    else if (msg.type === 'log')            onLogMsg(msg.id, msg.line);
+    else if (msg.type === 'detectedPorts')  onDetectedPorts(msg.ports);
   };
 }
 
@@ -607,9 +636,9 @@ function makeCard(s) {
   card.className = `card${isSel ? ' sel' : ''}`;
   card.dataset.id = cfg.id;
 
-  const portText = cfg.port
-    ? `<span class="port${portConflict ? ' conflict' : ''}">:${cfg.port}${portConflict ? ' ⚡' : ''}</span>`
-    : '';
+  const portText = (cfg.ports ?? []).map(p =>
+    `<a class="port${portConflict ? ' conflict' : ''}" href="http://localhost:${p}" target="_blank" title="http://localhost:${p} をブラウザで開く">:${p}${portConflict ? ' ⚡' : ''}</a>`
+  ).join(' ');
 
   const up = status === 'running' && startTime
     ? `<span class="uptime">${fmtUp(startTime)}</span>` : '';
@@ -646,6 +675,8 @@ function makeCard(s) {
     } else if (t.dataset.edit) {
       e.stopPropagation();
       openEdit(t.dataset.edit);
+    } else if (t.tagName === 'A') {
+      e.stopPropagation(); // リンククリックはカード選択に伝播させない
     } else {
       selectServer(cfg.id);
     }
@@ -676,9 +707,9 @@ function renderLogHeader() {
     return;
   }
 
-  const port = s.config.port ? ` :${s.config.port}` : '';
+  const portStr = s.config.ports?.length ? '  ' + s.config.ports.map(p => `:${p}`).join(' ') : '';
   const st = { running:'● Running', starting:'◌ Starting…', stopping:'◌ Stopping…', stopped:'○ Stopped', error:'✗ Error' };
-  title.textContent = `${s.config.name}${port}  ${st[s.status] ?? s.status}`;
+  title.textContent = `${s.config.name}${portStr}  ${st[s.status] ?? s.status}`;
   actions.style.display = 'flex';
 }
 
@@ -763,7 +794,10 @@ function openAdd() {
   document.getElementById('f-editing').value = '';
   document.getElementById('env-list').innerHTML = '';
   document.getElementById('btn-delete').classList.add('hidden');
+  const dr = document.getElementById('detect-result');
+  dr.style.display = 'none'; dr.innerHTML = '';
   document.getElementById('modal').classList.remove('hidden');
+  updateCommandHint();
 }
 
 function openEdit(id) {
@@ -779,7 +813,7 @@ function openEdit(id) {
   document.getElementById('f-command').value = c.command;
   document.getElementById('f-args').value    = c.args?.join(' ') ?? '';
   document.getElementById('f-cwd').value     = c.cwd ?? '';
-  document.getElementById('f-port').value    = c.port?.toString() ?? '';
+  document.getElementById('f-port').value    = c.ports?.join(', ') ?? '';
   document.getElementById('f-autostart').checked = c.autoStart ?? false;
   document.getElementById('f-stop').value    = c.stopCommand ?? '';
 
@@ -788,6 +822,8 @@ function openEdit(id) {
   if (c.env) for (const [k, v] of Object.entries(c.env)) addEnvRow(k, v);
 
   document.getElementById('btn-delete').classList.remove('hidden');
+  const dr = document.getElementById('detect-result');
+  dr.style.display = 'none'; dr.innerHTML = '';
   document.getElementById('modal').classList.remove('hidden');
   updateCommandHint();
 }
@@ -823,13 +859,15 @@ document.getElementById('srv-form').addEventListener('submit', e => {
   const argsRaw = document.getElementById('f-args').value.trim();
   const cwd     = document.getElementById('f-cwd').value.trim();
   const portRaw = document.getElementById('f-port').value.trim();
+  const ports   = portRaw
+    ? portRaw.split(/[\s,]+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n > 0 && n < 65536)
+    : [];
   const autoStart = document.getElementById('f-autostart').checked;
   const stopCmd = document.getElementById('f-stop').value.trim();
 
   if (!name || !id || !command) { alert('名前・ID・コマンドは必須です。'); return; }
 
   const args = argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : undefined;
-  const port = portRaw ? parseInt(portRaw, 10) : undefined;
 
   const env = {};
   for (const row of document.querySelectorAll('.env-row')) {
@@ -843,7 +881,7 @@ document.getElementById('srv-form').addEventListener('submit', e => {
     ...(args?.length ? { args } : {}),
     ...(cwd         ? { cwd }  : {}),
     ...(Object.keys(env).length ? { env } : {}),
-    ...(port        ? { port } : {}),
+    ...(ports.length ? { ports } : {}),
     autoStart,
     ...(stopCmd     ? { stopCommand: stopCmd } : {}),
   };
@@ -886,6 +924,68 @@ document.getElementById('modal').addEventListener('click', e => {
 document.getElementById('terminal-sel').addEventListener('change', e => {
   send({ type: 'updateSettings', settings: { preferredTerminal: e.target.value } });
 });
+
+// ─── ポート自動検出 ───────────────────────────────────────────────────────────
+
+document.getElementById('btn-detect').addEventListener('click', () => {
+  const cwd = document.getElementById('f-cwd').value.trim();
+  const result = document.getElementById('detect-result');
+  result.style.display = 'block';
+  result.innerHTML = '<span class="detect-none">検索中…</span>';
+  send({ type: 'detectPorts', cwd: cwd || undefined });
+});
+
+function onDetectedPorts(ports) {
+  const result = document.getElementById('detect-result');
+  result.style.display = 'block';
+
+  if (!ports || ports.length === 0) {
+    result.innerHTML = '<span class="detect-none">設定ファイルからポートが検出されませんでした</span>';
+    return;
+  }
+
+  // 現在のポートフィールドをパース
+  function getCurrentPorts() {
+    const raw = document.getElementById('f-port').value.trim();
+    return raw
+      ? raw.split(/[\s,]+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n))
+      : [];
+  }
+
+  function updatePortField() {
+    const chips = result.querySelectorAll('.detect-chip.on');
+    const selected = [...chips].map(c => parseInt(c.dataset.port, 10));
+    // 既存の手入力ポートと合算（チップで選択したものに置き換え）
+    document.getElementById('f-port').value = selected.join(', ');
+  }
+
+  const currentPorts = getCurrentPorts();
+  const wrap = document.createElement('div');
+  wrap.className = 'detect-chips';
+
+  for (const { port, source } of ports) {
+    const chip = document.createElement('div');
+    const isOn = currentPorts.includes(port);
+    chip.className = `detect-chip${isOn ? ' on' : ''}`;
+    chip.dataset.port = port;
+    chip.title = source;
+    chip.innerHTML = `<span class="chip-port">:${port}</span><span class="chip-src">${esc(source)}</span>`;
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('on');
+      updatePortField();
+    });
+    wrap.appendChild(chip);
+  }
+
+  result.innerHTML = '';
+  result.appendChild(wrap);
+
+  // 初回表示時に自動でポートフィールドを埋める（まだ空の場合のみ）
+  if (!document.getElementById('f-port').value.trim()) {
+    result.querySelectorAll('.detect-chip').forEach(c => c.classList.add('on'));
+    updatePortField();
+  }
+}
 
 // ══════════════════════════════════════════════════════════════════
 //  Uptime 自動更新（1秒ごと）

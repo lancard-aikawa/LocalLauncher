@@ -25,7 +25,17 @@ export function loadConfig(): LauncherConfig {
   const p = getConfigPath();
   if (!existsSync(p)) return structuredClone(DEFAULTS);
   try {
-    return JSON.parse(readFileSync(p, 'utf-8')) as LauncherConfig;
+    const cfg = JSON.parse(readFileSync(p, 'utf-8')) as LauncherConfig;
+    // 旧フォーマット（port: number）→ 新フォーマット（ports: number[]）へ自動マイグレーション
+    for (const s of cfg.servers) {
+      const legacy = s as ServerConfig & { port?: number };
+      if (legacy.port !== undefined && !s.ports?.length) {
+        s.ports = [legacy.port];
+        delete legacy.port;
+      }
+    }
+    if (!cfg.settings) cfg.settings = DEFAULTS.settings;
+    return cfg;
   } catch {
     return structuredClone(DEFAULTS);
   }

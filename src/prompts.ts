@@ -43,13 +43,17 @@ function askBool(rl: readline.Interface, q: string, def = false): Promise<boolea
   }));
 }
 
-function askInt(rl: readline.Interface, q: string, def?: number): Promise<number | undefined> {
-  const prompt = def !== undefined ? `${q} [${def}]: ` : `${q} (空でスキップ): `;
+function askPorts(rl: readline.Interface, q: string, def?: number[]): Promise<number[]> {
+  const defStr = def?.length ? def.join(', ') : undefined;
+  const prompt = defStr ? `${q} [${defStr}]: ` : `${q} (空でスキップ): `;
   return new Promise(res => rl.question(prompt, ans => {
     const v = ans.trim();
-    if (!v) return res(def);
-    const n = parseInt(v, 10);
-    res(isNaN(n) ? def : n);
+    if (!v) return res(def ?? []);
+    res(
+      v.split(/[\s,]+/)
+        .map(s => parseInt(s, 10))
+        .filter(n => !isNaN(n) && n > 0 && n < 65536)
+    );
   }));
 }
 
@@ -120,7 +124,7 @@ export async function promptServerForm(
     }
 
     // ── ポート・起動設定
-    const port      = await askInt(rl, '\nポート番号', existing?.port);
+    const ports     = await askPorts(rl, '\nポート番号 (複数はカンマ/スペース区切り、例: 4000, 9099, 8080)', existing?.ports);
     const autoStart = await askBool(rl, 'ランチャー起動時に自動スタート?', existing?.autoStart ?? false);
     const stopCommand = await askOpt(rl, 'カスタム停止コマンド (空でプロセスキル)', existing?.stopCommand);
 
@@ -132,7 +136,7 @@ export async function promptServerForm(
       ...(args?.length ? { args } : {}),
       ...(cwd ? { cwd } : {}),
       ...(Object.keys(env).length ? { env } : {}),
-      ...(port !== undefined ? { port } : {}),
+      ...(ports.length ? { ports } : {}),
       autoStart,
       ...(stopCommand ? { stopCommand } : {}),
     };

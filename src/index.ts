@@ -28,7 +28,7 @@ async function main() {
         const auto = s.autoStart ? ' ★' : '  ';
         console.log(
           ' ' + s.id.padEnd(18) + s.name.padEnd(20)
-          + (s.port?.toString() ?? '-').padEnd(7)
+          + (s.ports?.join(',') ?? '-').padEnd(14)
           + s.runtime.padEnd(13) + auto
         );
       }
@@ -62,16 +62,18 @@ async function main() {
 
     // ─────────────────────────────────────────────── port-check ────────────
     case 'port-check': {
-      const targets = cfg.servers.filter(s => s.port);
+      const targets = cfg.servers.filter(s => s.ports?.length);
       if (!targets.length) { console.log('ポートが設定されたサーバーはありません。'); break; }
 
       const dupes = findDuplicatePorts(cfg.servers);
       console.log('\nポート空き確認:');
       for (const s of targets) {
-        const free  = await checkPortAvailable(s.port!);
-        const dupe  = dupes.has(s.port!) ? ' ⚠ 設定が重複' : '';
-        const mark  = free ? '✓ 空き  ' : '✗ 使用中';
-        console.log(`  ${s.name.padEnd(26)} :${String(s.port).padEnd(6)} ${mark}${dupe}`);
+        for (const port of s.ports!) {
+          const free = await checkPortAvailable(port);
+          const dupe = dupes.has(port) ? ' ⚠ 設定が重複' : '';
+          const mark = free ? '✓ 空き  ' : '✗ 使用中';
+          console.log(`  ${s.name.padEnd(26)} :${String(port).padEnd(6)} ${mark}${dupe}`);
+        }
       }
       console.log('');
       break;
