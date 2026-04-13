@@ -22,6 +22,7 @@ export class WebServer {
     // マネージャーのコールバックを差し替えてリアルタイム配信
     manager.onLog    = (id, line) => this.broadcast({ type: 'log', id, line });
     manager.onUpdate = () => this.scheduleState();
+    manager.settings = cfg.settings;
   }
 
   start(): void {
@@ -125,6 +126,7 @@ export class WebServer {
         const settings = msg.settings as LauncherSettings;
         this.cfg = { ...this.cfg, settings };
         saveConfig(this.cfg);
+        this.manager.settings = settings;
         this.broadcastState();
         break;
       }
@@ -177,6 +179,12 @@ export class WebServer {
         } catch (e) {
           ws.send(JSON.stringify({ type: 'toast', message: `インポート失敗: ${(e as Error).message}`, level: 'err' }));
         }
+        break;
+      }
+
+      case 'stdinInput': {
+        const data = msg.data as string;
+        if (id && typeof data === 'string') this.manager.writeStdin(id, data);
         break;
       }
 

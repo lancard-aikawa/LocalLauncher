@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import type { ServerConfig, ServerState } from './types';
+import type { ServerConfig, ServerState, LauncherSettings } from './types';
 import { checkPortAvailable } from './portChecker';
 
 const execAsync = promisify(exec);
@@ -9,6 +9,22 @@ const IS_WIN = process.platform === 'win32';
 const MAX_LOGS = 500;
 
 // ─── ランタイム別コマンド構築 ────────────────────────────────────────────────
+
+/** terminal モード用: 実行するコマンド文字列を返す */
+function buildCmdString(cfg: ServerConfig): string {
+  const { runtime, command, args = [] } = cfg;
+  const suffix = args.length ? ' ' + args.join(' ') : '';
+  switch (runtime) {
+    case 'bun':        return `bun run ${command}${suffix}`;
+    case 'node':       return `node ${command}${suffix}`;
+    case 'npm':        return `npm run ${command}${suffix}`;
+    case 'python':     return `python ${command}${suffix}`;
+    case 'python3':    return `python3 ${command}${suffix}`;
+    case 'cmd':
+    case 'powershell':
+    case 'raw':        return `${command}${suffix}`;
+  }
+}
 
 function buildCmd(cfg: ServerConfig): [string, string[]] {
   const { runtime, command, args = [] } = cfg;
@@ -46,9 +62,12 @@ export class ServerManager {
   onUpdate: () => void;
   /** ログ行追加時に呼ばれるコールバック（WebServerがリアルタイム配信に使用） */
   onLog: (id: string, line: string) => void = () => {};
+  /** 設定（terminal モードの優先ターミナル種別に使用） */
+  settings?: LauncherSettings;
 
-  private states = new Map<string, ServerState>();
-  private procs  = new Map<string, ReturnType<typeof spawn>>();
+  private states       = new Map<string, ServerState>();
+  private procs        = new Map<string, ReturnType<typeof spawn>>();
+  private detachTimers = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(servers: ServerConfig[], onUpdate: () => void) {
     this.onUpdate = onUpdate;
@@ -64,7 +83,12 @@ export class ServerManager {
   /** 設定変更時にサーバーリストを同期（実行中プロセスはそのまま維持） */
   syncServers(servers: ServerConfig[]): void {
     const newIds = new Set(servers.map(s => s.id));
-    for (const id of this.states.keys()) if (!newIds.has(id)) this.states.delete(id);
+    for (const id of this.states.keys()) {
+      if (!newIds.has(id)) {
+        this.stopDetachedWatch(id);
+        this.states.delete(id);
+      }
+    }
     for (const s of servers) {
       const existing = this.states.get(s.id);
       if (existing) existing.config = s;
@@ -77,9 +101,20 @@ export class ServerManager {
   async start(id: string): Promise<void> {
     const state = this.states.get(id);
     if (!state) return;
-    if (state.status === 'running' || state.status === 'starting') return;
+    if (state.status === 'running' || state.status === 'starting' || state.status === 'detached') return;
 
     const { config } = state;
+
+    // ── terminal モード ──────────────────────────────────────────────────────
+    if (config.launchMode === 'terminal') {
+      this.patch(id, { status: 'running', startTime: new Date(), exitCode: undefined, pid: undefined });
+      const cmdStr = buildCmdString(config);
+      this.log(id, `▶ [terminal] ${cmdStr}`);
+      if (config.cwd) this.log(id, `  cwd: ${config.cwd}`);
+      this.log(id, 'ℹ 出力はターミナルウィンドウに表示されます');
+      this.launchInTerminal(config);
+      return;
+    }
 
     // 全ポートの空き確認
     let anyConflict = false;
@@ -100,11 +135,8 @@ export class ServerManager {
       env:          { ...process.env, ...config.env },
       shell:        IS_WIN,   // Windowsでは.cmdファイルを解決するためshell:true
       windowsHide:  true,
-      // LocalLauncher 自身が TTY（ターミナル）から起動されている場合は stdin を継承する。
-      // 継承することで孫プロセス（start.cmd 内の powershell など）も本物の
-      // コンソール stdin を持てるため "Input redirection is not supported" を防げる。
-      // TTY でない場合（VBScript 自動起動など）は 'ignore' にフォールバック。
-      stdio:        [process.stdin.isTTY ? 'inherit' : 'ignore', 'pipe', 'pipe'],
+      // stdin を pipe にすることで Web UI からのキー入力をプロセスに転送できる。
+      stdio:        ['pipe', 'pipe', 'pipe'],
     });
 
     this.procs.set(id, proc);
@@ -122,6 +154,18 @@ export class ServerManager {
     proc.on('exit', code => {
       this.procs.delete(id);
       const cur = this.states.get(id);
+
+      // detached モード: 起動コマンドが終了（exit code 不問）→ バックグラウンドで実行中とみなす
+      // スクリプト内の起動確認タイムアウト不足などで非ゼロ終了することがあるが、
+      // 実プロセスは起動済みのケースがあるため exit code は無視する。
+      // 実際の起動成否はポート監視で判定する。
+      if (config.detached && cur?.status !== 'stopping') {
+        this.patch(id, { status: 'detached', exitCode: undefined, pid: undefined });
+        this.log(id, `⎋ Detached — バックグラウンドで実行中${code !== 0 ? ` (launcher exited ${code})` : ''}`);
+        this.startDetachedWatch(id);
+        return;
+      }
+
       const graceful = cur?.status === 'stopping' || code === 0;
       this.patch(id, { status: graceful ? 'stopped' : 'error', exitCode: code, pid: undefined });
       this.log(id, `${graceful ? '⏹' : '✗'} Exited (code ${code})`);
@@ -137,6 +181,31 @@ export class ServerManager {
   async stop(id: string): Promise<void> {
     const state = this.states.get(id);
     if (!state || state.status === 'stopped' || state.status === 'stopping') return;
+
+    // terminal モードはプロセス管理不可のため状態をリセットするのみ
+    if (state.config.launchMode === 'terminal') {
+      this.patch(id, { status: 'stopped', pid: undefined });
+      this.log(id, '⏹ Stopped (ターミナルウィンドウを手動で閉じてください)');
+      return;
+    }
+
+    // detached モード: stopCommand で実プロセスを終了
+    if (state.status === 'detached') {
+      this.stopDetachedWatch(id);
+      this.log(id, '⏹ Stopping detached process…');
+      if (state.config.stopCommand) {
+        try {
+          await execAsync(state.config.stopCommand, { cwd: state.config.cwd });
+        } catch (e) {
+          this.log(id, `⚠ Stop command failed: ${(e as Error).message}`);
+        }
+      } else {
+        this.log(id, '⚠ stopCommand が未設定のため状態のみリセットしました');
+      }
+      this.patch(id, { status: 'stopped', pid: undefined });
+      this.log(id, '⏹ Stopped');
+      return;
+    }
 
     this.patch(id, { status: 'stopping' });
     this.log(id, '⏹ Stopping…');
@@ -169,6 +238,12 @@ export class ServerManager {
     );
   }
 
+  /** Web UI からのキー入力をプロセスの stdin に書き込む */
+  writeStdin(id: string, data: string): void {
+    const proc = this.procs.get(id);
+    proc?.stdin?.write(data);
+  }
+
   clearLogs(id: string): void {
     const s = this.states.get(id);
     if (!s) return;
@@ -198,6 +273,67 @@ export class ServerManager {
     if (!s) return;
     Object.assign(s, partial);
     this.onUpdate();
+  }
+
+  /** terminal モード: 指定ターミナルでコマンドを実行する */
+  private launchInTerminal(config: ServerConfig): void {
+    const term = this.settings?.preferredTerminal ?? 'powershell';
+    const cwd  = (config.cwd || process.cwd()).replace(/\//g, '\\');
+    const cmd  = buildCmdString(config);
+
+    // PowerShell では .cmd/.bat/.ps1 をパス指定なしで渡すと現在ディレクトリを検索しない。
+    // 拡張子があってパス区切り文字を含まない先頭トークンには .\ を付与する。
+    const firstToken = cmd.split(' ')[0];
+    const needsRelPath = /\.(cmd|bat|ps1)$/i.test(firstToken) && !/[/\\]/.test(firstToken);
+    const cmdForPs = needsRelPath ? `.\\${cmd}` : cmd;
+
+    const cwdPs = cwd.replace(/'/g, "''");
+    const cmdPs = cmdForPs.replace(/'/g, "''");
+
+    switch (term) {
+      case 'powershell':
+        exec(`start "" powershell.exe -NoExit -Command "Set-Location '${cwdPs}'; ${cmdPs}"`, (err) => {
+          if (err) this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+        });
+        break;
+      case 'cmd':
+        exec(`start "" cmd.exe /k "cd /d "${cwd}" && ${cmd}"`, (err) => {
+          if (err) this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+        });
+        break;
+      case 'wt':
+        exec(`wt.exe -d "${cwd}" -- powershell.exe -NoExit -Command "${cmdPs}"`, (err) => {
+          if (err) {
+            exec(`start "" powershell.exe -NoExit -Command "Set-Location '${cwdPs}'; ${cmdPs}"`, (err2) => {
+              if (err2) this.log(config.id, `✗ ターミナル起動失敗: ${err2.message}`);
+            });
+          }
+        });
+        break;
+    }
+  }
+
+  /** detached サーバーのポート監視を開始（全ポートが空きになったら stopped に遷移） */
+  private startDetachedWatch(id: string): void {
+    this.stopDetachedWatch(id);
+    const timer = setInterval(async () => {
+      const state = this.states.get(id);
+      if (!state || state.status !== 'detached') { this.stopDetachedWatch(id); return; }
+      const ports = state.config.ports ?? [];
+      if (ports.length === 0) return; // ポート未設定は監視不可
+      const results = await Promise.all(ports.map(p => checkPortAvailable(p)));
+      if (results.every(Boolean)) {
+        this.stopDetachedWatch(id);
+        this.patch(id, { status: 'stopped' });
+        this.log(id, '⏹ バックグラウンドプロセスの終了を検出しました');
+      }
+    }, 5000);
+    this.detachTimers.set(id, timer);
+  }
+
+  private stopDetachedWatch(id: string): void {
+    const timer = this.detachTimers.get(id);
+    if (timer) { clearInterval(timer); this.detachTimers.delete(id); }
   }
 
   /** Windowsではプロセスツリーごと強制終了、UNIX系ではSIGTERM→SIGKILL */

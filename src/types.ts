@@ -1,3 +1,5 @@
+export type LaunchMode = 'browser' | 'terminal';
+
 // 対応ランタイム一覧
 export type Runtime =
   | 'bun'
@@ -21,6 +23,8 @@ export interface ServerConfig {
   autoStart?: boolean;  // ランチャー起動時に自動スタート
   stopCommand?: string; // カスタム停止コマンド（省略時はプロセスキル）
   restartDelay?: number; // 再起動時の待機ms（デフォルト: 1000）
+  launchMode?: LaunchMode; // 'browser'（デフォルト）= ログ取得付き内部起動 / 'terminal' = 端末ウィンドウで起動
+  detached?: boolean;  // 起動コマンドが即終了し実プロセスが独立して動くタイプ（detached状態に遷移）
 }
 
 export type PreferredTerminal = 'powershell' | 'cmd' | 'wt';
@@ -35,7 +39,7 @@ export interface LauncherConfig {
   settings: LauncherSettings;
 }
 
-export type ServerStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
+export type ServerStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'detached';
 
 export interface ServerState {
   config: ServerConfig;

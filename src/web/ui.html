@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LocalLauncher</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <style>
 /* ── Reset & base ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -121,7 +124,8 @@ body {
   flex-shrink: 0;
   background: var(--dim);
 }
-.dot.running  { background: var(--green); box-shadow: 0 0 5px var(--green44); }
+.dot.running  { background: var(--green);  box-shadow: 0 0 5px var(--green44); }
+.dot.detached { background: var(--cyan);   box-shadow: 0 0 5px var(--cyan); }
 .dot.starting, .dot.stopping { background: var(--yellow); animation: pulse 1s infinite; }
 .dot.stopped  { background: var(--dim); }
 .dot.error    { background: var(--red); }
@@ -259,52 +263,16 @@ body {
 .log-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-.log-body {
+/* ── Terminal (xterm.js) ─────────────────────────────────────────── */
+#terminal-container {
   flex: 1;
-  overflow-y: auto;
-  padding: 8px 14px;
-  line-height: 1.65;
-  font-size: 12px;
   min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  padding: 4px 2px;
 }
-
-.log-line { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
-.log-line.err { color: #fca5a5; }
-
-/* ANSI color spans */
-.a-bold    { font-weight: bold; }
-.a-red     { color: var(--red); }
-.a-green   { color: var(--green); }
-.a-yellow  { color: var(--yellow); }
-.a-blue    { color: var(--blue); }
-.a-magenta { color: var(--purple); }
-.a-cyan    { color: var(--cyan); }
-.a-white   { color: var(--text); }
-.a-dim     { opacity: .5; }
-
-.log-empty {
-  color: var(--dim);
-  padding: 20px;
-  text-align: center;
-}
-
-.scroll-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 20px;
-  background: var(--accent);
-  border: none;
-  border-radius: 20px;
-  color: #fff;
-  cursor: pointer;
-  padding: 5px 12px;
-  font-size: 12px;
-  opacity: .85;
-  transition: opacity .15s;
-  display: none;
-}
-.scroll-btn.visible { display: block; }
-.log-panel { position: relative; }
+#terminal-container .xterm { height: 100%; }
+.log-panel { display: flex; flex-direction: column; }
 
 /* ── Modal ────────────────────────────────────────────────────────── */
 .modal-backdrop {
@@ -536,10 +504,7 @@ body {
         <button class="btn" id="btn-log-clear">ログ消去</button>
       </div>
     </div>
-    <div class="log-body" id="log-body">
-      <div class="log-empty">サーバーを選択するとログが表示されます</div>
-    </div>
-    <button class="scroll-btn" id="scroll-btn">↓ 最新へ</button>
+    <div id="terminal-container"></div>
   </section>
 
 </div>
@@ -619,10 +584,33 @@ body {
         </div>
 
         <div class="form-group">
+          <label>起動方式</label>
+          <div style="display:flex;gap:20px;align-items:center;margin-top:4px">
+            <label class="check-row">
+              <input type="radio" name="f-launch-mode" value="browser" id="f-launch-browser">
+              <span>ブラウザ内（ログ取得）</span>
+            </label>
+            <label class="check-row">
+              <input type="radio" name="f-launch-mode" value="terminal" id="f-launch-terminal">
+              <span>ターミナルで起動</span>
+            </label>
+          </div>
+          <div class="hint">「ターミナルで起動」はコマンドを外部ターミナルウィンドウで実行します。ログはブラウザに表示されません。</div>
+        </div>
+
+        <div class="form-group">
           <label class="check-row">
             <input type="checkbox" id="f-autostart">
             <span>ランチャー起動時に自動スタート ★</span>
           </label>
+        </div>
+
+        <div class="form-group">
+          <label class="check-row">
+            <input type="checkbox" id="f-detached">
+            <span>Detached モード ⎋</span>
+          </label>
+          <div class="hint">起動コマンドが即終了し実プロセスが独立して動くタイプ（start.bat / Start-Process など）。停止には stopCommand の設定が必要です。</div>
         </div>
 
         <!-- hidden: editing id -->
@@ -647,7 +635,6 @@ const state = {
   servers: [],        // ServerPayload[]
   selId: null,        // string | null
   logs: new Map(),    // id → string[]
-  autoScroll: true,
   portStatus: {},     // Record<number, boolean>  true = LISTENING
 };
 
@@ -720,7 +707,7 @@ function onLogMsg(id, line) {
   logs.push(line);
   if (logs.length > 500) logs.shift();
 
-  if (id === state.selId) appendLogLine(line);
+  if (id === state.selId && term) term.writeln(line);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -747,7 +734,7 @@ function makeCard(s) {
 
   const portText = (cfg.ports ?? []).map(p => {
     const listening = state.portStatus[p];          // true=使用中 false=空き undefined=未確認
-    const isRunning = status === 'running' || status === 'starting';
+    const isRunning = status === 'running' || status === 'starting' || status === 'detached';
     let psClass = '', psTip = '', dotHtml = '<span class="port-dot"></span>';
     if (listening === true) {
       if (isRunning) {
@@ -772,9 +759,9 @@ function makeCard(s) {
   const up = status === 'running' && startTime
     ? `<span class="uptime">${fmtUp(startTime)}</span>` : '';
 
-  const running   = status === 'running'  || status === 'starting';
-  const stopped   = status === 'stopped'  || status === 'stopping' || status === 'error';
-  const canRestart = status === 'running';
+  const running    = status === 'running'  || status === 'starting' || status === 'detached';
+  const stopped    = status === 'stopped'  || status === 'stopping' || status === 'error';
+  const canRestart = status === 'running'  || status === 'detached';
 
   card.innerHTML = `
     <div class="card-top">
@@ -784,6 +771,8 @@ function makeCard(s) {
     </div>
     <div class="card-meta">
       <span class="badge">${cfg.runtime}</span>
+      ${cfg.detached    ? '<span class="badge" title="Detachedモード" style="color:var(--cyan)">⎋ detached</span>' : ''}
+      ${cfg.launchMode === 'terminal' ? '<span class="badge" title="ターミナルで起動" style="color:var(--cyan)">⌨ terminal</span>' : ''}
       ${portText}
       ${cfg.autoStart ? '<span class="auto-star" title="自動起動">★</span>' : ''}
       ${up}
@@ -801,6 +790,9 @@ function makeCard(s) {
     if (t.dataset.action) {
       e.stopPropagation();
       send({ type: t.dataset.action, id: t.dataset.id });
+      if (t.dataset.action === 'start' || t.dataset.action === 'restart') {
+        selectServer(t.dataset.id);
+      }
     } else if (t.dataset.edit) {
       e.stopPropagation();
       openEdit(t.dataset.edit);
@@ -818,7 +810,7 @@ function selectServer(id) {
   state.selId = id;
   renderSidebar();
   renderLogHeader();
-  renderLogs();
+  switchTerminal(id);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -837,68 +829,16 @@ function renderLogHeader() {
   }
 
   const portStr = s.config.ports?.length ? '  ' + s.config.ports.map(p => `:${p}`).join(' ') : '';
-  const st = { running:'● Running', starting:'◌ Starting…', stopping:'◌ Stopping…', stopped:'○ Stopped', error:'✗ Error' };
+  const st = { running:'● Running', starting:'◌ Starting…', stopping:'◌ Stopping…', stopped:'○ Stopped', error:'✗ Error', detached:'⎋ Detached' };
   title.textContent = `${s.config.name}${portStr}  ${st[s.status] ?? s.status}`;
   actions.style.display = 'flex';
 }
-
-function renderLogs() {
-  const body = document.getElementById('log-body');
-  body.innerHTML = '';
-  const logs = state.logs.get(state.selId) ?? [];
-  if (logs.length === 0) {
-    body.innerHTML = '<div class="log-empty">ログがありません</div>';
-    return;
-  }
-  const frag = document.createDocumentFragment();
-  for (const line of logs) {
-    frag.appendChild(makeLogLine(line));
-  }
-  body.appendChild(frag);
-  if (state.autoScroll) body.scrollTop = body.scrollHeight;
-}
-
-function appendLogLine(line) {
-  const body = document.getElementById('log-body');
-
-  // 空プレースホルダーを消す
-  const empty = body.querySelector('.log-empty');
-  if (empty) empty.remove();
-
-  body.appendChild(makeLogLine(line));
-
-  // DOMが増えすぎたら古い行を削除
-  while (body.children.length > 600) body.removeChild(body.firstChild);
-
-  if (state.autoScroll) body.scrollTop = body.scrollHeight;
-}
-
-function makeLogLine(raw) {
-  const el = document.createElement('div');
-  el.className = 'log-line' + (raw.includes('[ERR]') ? ' err' : '');
-  el.innerHTML = ansi(esc(raw));
-  return el;
-}
-
-// ── オートスクロール制御
-const logBody = document.getElementById('log-body');
-logBody.addEventListener('scroll', () => {
-  const { scrollHeight, scrollTop, clientHeight } = logBody;
-  state.autoScroll = scrollHeight - scrollTop - clientHeight < 60;
-  document.getElementById('scroll-btn').classList.toggle('visible', !state.autoScroll);
-});
-
-document.getElementById('scroll-btn').addEventListener('click', () => {
-  state.autoScroll = true;
-  logBody.scrollTop = logBody.scrollHeight;
-  document.getElementById('scroll-btn').classList.remove('visible');
-});
 
 document.getElementById('btn-log-clear').addEventListener('click', () => {
   if (state.selId) {
     send({ type: 'clearLogs', id: state.selId });
     state.logs.set(state.selId, []);
-    renderLogs();
+    if (term) term.reset();
   }
 });
 
@@ -923,6 +863,8 @@ function openAdd() {
   document.getElementById('f-editing').value = '';
   document.getElementById('env-list').innerHTML = '';
   document.getElementById('btn-delete').classList.add('hidden');
+  document.getElementById('f-launch-browser').checked = true;
+  document.getElementById('f-detached').checked = false;
   const dr = document.getElementById('detect-result');
   dr.style.display = 'none'; dr.innerHTML = '';
   document.getElementById('modal').classList.remove('hidden');
@@ -945,6 +887,9 @@ function openEdit(id) {
   document.getElementById('f-port').value    = c.ports?.join(', ') ?? '';
   document.getElementById('f-autostart').checked = c.autoStart ?? false;
   document.getElementById('f-stop').value    = c.stopCommand ?? '';
+  const launchMode = c.launchMode ?? 'browser';
+  document.querySelector(`input[name="f-launch-mode"][value="${launchMode}"]`).checked = true;
+  document.getElementById('f-detached').checked = c.detached ?? false;
 
   const envList = document.getElementById('env-list');
   envList.innerHTML = '';
@@ -991,8 +936,10 @@ document.getElementById('srv-form').addEventListener('submit', e => {
   const ports   = portRaw
     ? portRaw.split(/[\s,]+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n > 0 && n < 65536)
     : [];
-  const autoStart = document.getElementById('f-autostart').checked;
-  const stopCmd = document.getElementById('f-stop').value.trim();
+  const autoStart  = document.getElementById('f-autostart').checked;
+  const detached   = document.getElementById('f-detached').checked;
+  const stopCmd    = document.getElementById('f-stop').value.trim();
+  const launchMode = document.querySelector('input[name="f-launch-mode"]:checked')?.value ?? 'browser';
 
   if (!name || !id || !command) { alert('名前・ID・コマンドは必須です。'); return; }
 
@@ -1012,6 +959,8 @@ document.getElementById('srv-form').addEventListener('submit', e => {
     ...(Object.keys(env).length ? { env } : {}),
     ...(ports.length ? { ports } : {}),
     autoStart,
+    detached,
+    launchMode,
     ...(stopCmd     ? { stopCommand: stopCmd } : {}),
   };
 
@@ -1128,7 +1077,7 @@ function onPortStatus(status) {
     // portText を再生成してカード内の port リンクを置き換え
     const portNodes = meta.querySelectorAll('a.port');
     const ports = s.config.ports ?? [];
-    const isRunning = s.status === 'running' || s.status === 'starting';
+    const isRunning = s.status === 'running' || s.status === 'starting' || s.status === 'detached';
     ports.forEach((p, i) => {
       const a = portNodes[i];
       if (!a) return;
@@ -1183,20 +1132,85 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** ANSI エスケープ → HTML span（HTMLエスケープ済み文字列に適用） */
-function ansi(s) {
-  return s
-    .replace(/\x1b\[0m/g,  '</span>')
-    .replace(/\x1b\[1m/g,  '<span class="a-bold">')
-    .replace(/\x1b\[2m/g,  '<span class="a-dim">')
-    .replace(/\x1b\[31m/g, '<span class="a-red">')
-    .replace(/\x1b\[32m/g, '<span class="a-green">')
-    .replace(/\x1b\[33m/g, '<span class="a-yellow">')
-    .replace(/\x1b\[34m/g, '<span class="a-blue">')
-    .replace(/\x1b\[35m/g, '<span class="a-magenta">')
-    .replace(/\x1b\[36m/g, '<span class="a-cyan">')
-    .replace(/\x1b\[37m/g, '<span class="a-white">')
-    .replace(/\x1b\[[0-9;]*m/g, ''); // 残りのエスケープは除去
+
+// ══════════════════════════════════════════════════════════════════
+//  Terminal (xterm.js)
+// ══════════════════════════════════════════════════════════════════
+
+let term      = null;
+let fitAddon  = null;
+
+function setupTerminal() {
+  term = new Terminal({
+    theme: {
+      background:   '#0d0d1a',
+      foreground:   '#e2e8f0',
+      cursor:       '#7c3aed',
+      selectionBackground: '#7c3aed55',
+      black:        '#0d0d1a',
+      red:          '#f87171',
+      green:        '#4ade80',
+      yellow:       '#fbbf24',
+      blue:         '#60a5fa',
+      magenta:      '#a78bfa',
+      cyan:         '#34d399',
+      white:        '#e2e8f0',
+      brightBlack:  '#64748b',
+      brightRed:    '#f87171',
+      brightGreen:  '#4ade80',
+      brightYellow: '#fbbf24',
+      brightBlue:   '#60a5fa',
+      brightMagenta:'#a78bfa',
+      brightCyan:   '#34d399',
+      brightWhite:  '#e2e8f0',
+    },
+    fontFamily:   "'Consolas', 'Menlo', 'Monaco', monospace",
+    fontSize:     12,
+    lineHeight:   1.5,
+    scrollback:   500,
+    convertEol:   true,
+    cursorBlink:  true,
+    cursorStyle:  'block',
+  });
+
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('terminal-container'));
+  fitAddon.fit();
+
+  // キー入力 → WebSocket → プロセス stdin
+  term.onData(data => {
+    if (state.selId) send({ type: 'stdinInput', id: state.selId, data });
+  });
+
+  // コンテナサイズ変化に追従
+  new ResizeObserver(() => { try { fitAddon.fit(); } catch {} })
+    .observe(document.getElementById('terminal-container'));
+
+  term.writeln('\x1b[2mサーバーを選択してください\x1b[0m');
+}
+
+/** サーバー切り替え時にターミナルをリセットしてログを再表示する */
+function switchTerminal(id) {
+  if (!term) return;
+  term.reset();
+
+  if (!id) {
+    term.writeln('\x1b[2mサーバーを選択してください\x1b[0m');
+    return;
+  }
+
+  const logs = state.logs.get(id) ?? [];
+  if (logs.length === 0) {
+    term.writeln('\x1b[2mログがありません\x1b[0m');
+  } else {
+    for (const line of logs) term.writeln(line);
+  }
+
+  const srv = state.servers.find(s => s.config.id === id);
+  if (srv?.config.launchMode === 'terminal') {
+    term.writeln('\x1b[2mℹ ターミナルモードで起動中のため入力は外部ウィンドウで行ってください\x1b[0m');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1283,6 +1297,7 @@ function showToast(message, level = 'ok') {
 // ══════════════════════════════════════════════════════════════════
 //  Init
 // ══════════════════════════════════════════════════════════════════
+setupTerminal();
 connectWs();
 updateCommandHint();
 </script>
