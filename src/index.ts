@@ -91,21 +91,49 @@ async function main() {
         'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
       );
 
-      // bun の絶対パスを取得
-      let bunPath: string;
+      // bun.exe の実パスを解決する
+      // where bun で見つかるのが .cmd シムの場合、その中から実際の exe パスを取得する
+      let bunExePath: string;
       try {
-        bunPath = execSync('where bun', { encoding: 'utf-8' }).trim().split(/\r?\n/)[0].trim();
+        const whereBun = execSync('where bun', { encoding: 'utf-8' }).trim().split(/\r?\n/)[0].trim();
+        if (whereBun.toLowerCase().endsWith('.exe')) {
+          bunExePath = whereBun;
+        } else {
+          // .cmd / シムスクリプトの場合: 同ディレクトリの node_modules\bun\bin\bun.exe を探す
+          const dir = join(whereBun, '..');
+          const candidate = join(dir, 'node_modules', 'bun', 'bin', 'bun.exe');
+          if (existsSync(candidate)) {
+            bunExePath = candidate;
+          } else {
+            // フォールバック: bun.cmd を呼ぶ
+            bunExePath = whereBun.replace(/\.[^.]+$/, '.cmd');
+          }
+        }
       } catch {
         console.error('bun が PATH に見つかりません。先に bun をインストールしてください。');
         process.exit(1);
       }
 
       const scriptPath = join(import.meta.dir, 'index.ts');
+      const configDir = join(process.env.APPDATA!, 'LocalLauncher');
+      const batPath   = join(configDir, 'autostart.bat');
+      const logPath   = join(configDir, 'autostart.log');
 
-      // ウィンドウを表示せずに起動する VBScript
+      // 起動ログを記録するバッチファイル（手動実行でも動作確認できる）
+      const bat = [
+        '@echo off',
+        `echo [%DATE% %TIME%] LocalLauncher autostart starting... >> "${logPath}"`,
+        `"${bunExePath}" run "${scriptPath}" web >> "${logPath}" 2>&1`,
+        `echo [%DATE% %TIME%] LocalLauncher process exited with code %ERRORLEVEL% >> "${logPath}"`,
+      ].join('\r\n');
+      writeFileSync(batPath, bat, 'utf-8');
+
+      // VBScript: 10秒待機してからバッチを非表示で実行
+      // （OS起動直後の環境初期化が完了するまで待つ）
       const vbs = [
         'Set WshShell = CreateObject("WScript.Shell")',
-        `WshShell.Run """${bunPath}"" run ""${scriptPath}""", 0, False`,
+        'WScript.Sleep 10000',
+        `WshShell.Run "cmd /c """"${batPath}""""", 0, False`,
       ].join('\r\n');
 
       const vbsPath = join(startupDir, 'LocalLauncher.vbs');
@@ -113,8 +141,10 @@ async function main() {
 
       console.log(`✓ スタートアップに登録しました:`);
       console.log(`  ${vbsPath}`);
-      console.log('\n次回 Windows ログイン時に LocalLauncher が自動起動します。');
-      console.log('削除するには上記ファイルを削除してください。\n');
+      console.log(`\n起動ログ: ${logPath}`);
+      console.log(`手動テスト: "${batPath}" を直接実行するとログに出力されます`);
+      console.log('\n次回 Windows ログイン時に LocalLauncher が自動起動します（10秒遅延）。');
+      console.log('削除するには上記 .vbs ファイルを削除してください。\n');
       break;
     }
 
@@ -196,7 +226,6 @@ async function main() {
         process.once('SIGTERM', shutdown);
       });
       process.exit(0);
-      break;
     }
 
     // ─────────────────────────────────────────────── stop-web ─────────────
