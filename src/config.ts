@@ -15,7 +15,11 @@ export function getConfigPath(): string {
   return join(configDir(), 'config.json');
 }
 
-const DEFAULTS: LauncherConfig = { version: 1, servers: [] };
+const DEFAULTS: LauncherConfig = {
+  version: 1,
+  servers: [],
+  settings: { preferredTerminal: 'powershell' },
+};
 
 export function loadConfig(): LauncherConfig {
   const p = getConfigPath();

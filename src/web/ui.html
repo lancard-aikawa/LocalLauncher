@@ -61,6 +61,17 @@ body {
 .ws-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .ws-dot.err { background: var(--red); }
 
+.terminal-sel-wrap {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--dim);
+}
+.terminal-sel-wrap select {
+  background: var(--sur2); border: 1px solid var(--bdr); border-radius: 4px;
+  color: var(--text); font-family: inherit; font-size: 12px;
+  padding: 3px 6px; cursor: pointer;
+}
+.terminal-sel-wrap select:focus { outline: none; border-color: var(--accent); }
+
 .layout {
   display: flex;
   flex: 1;
@@ -370,6 +381,14 @@ body {
 <header class="header">
   <div class="logo">🚀 <span>LocalLauncher</span></div>
   <div class="header-right">
+    <div class="terminal-sel-wrap">
+      <span>ターミナル:</span>
+      <select id="terminal-sel" title="エクスプローラー・ターミナルで開く際のデフォルトターミナル">
+        <option value="powershell">PowerShell</option>
+        <option value="cmd">cmd</option>
+        <option value="wt">Windows Terminal</option>
+      </select>
+    </div>
     <div class="ws-dot" id="ws-dot" title="WebSocket接続状態"></div>
     <button class="btn btn-primary" id="btn-add">＋ 追加</button>
   </div>
@@ -523,7 +542,7 @@ function connectWs() {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if      (msg.type === 'state') onStateMsg(msg.servers);
+    if      (msg.type === 'state') onStateMsg(msg.servers, msg.settings);
     else if (msg.type === 'log')   onLogMsg(msg.id, msg.line);
   };
 }
@@ -536,8 +555,11 @@ function send(obj) {
 //  Message handlers
 // ══════════════════════════════════════════════════════════════════
 
-function onStateMsg(servers) {
+function onStateMsg(servers, settings) {
   state.servers = servers;
+  if (settings?.preferredTerminal) {
+    document.getElementById('terminal-sel').value = settings.preferredTerminal;
+  }
 
   // 初回ログ初期化 / 削除されたサーバーのログをクリア
   const ids = new Set(servers.map(s => s.config.id));
@@ -609,9 +631,11 @@ function makeCard(s) {
       ${up}
     </div>
     <div class="card-actions">
-      <button class="btn btn-green" data-action="start"   data-id="${cfg.id}" ${running  ? 'disabled' : ''}>▶ 起動</button>
-      <button class="btn btn-red"   data-action="stop"    data-id="${cfg.id}" ${stopped  ? 'disabled' : ''}>■ 停止</button>
-      <button class="btn"           data-action="restart" data-id="${cfg.id}" ${canRestart ? '' : 'disabled'}>↻</button>
+      <button class="btn btn-green" data-action="start"        data-id="${cfg.id}" ${running  ? 'disabled' : ''}>▶ 起動</button>
+      <button class="btn btn-red"   data-action="stop"         data-id="${cfg.id}" ${stopped  ? 'disabled' : ''}>■ 停止</button>
+      <button class="btn"           data-action="restart"      data-id="${cfg.id}" ${canRestart ? '' : 'disabled'} title="再起動">↻</button>
+      <button class="btn"           data-action="openExplorer" data-id="${cfg.id}" title="エクスプローラーで開く">📁</button>
+      <button class="btn"           data-action="openTerminal" data-id="${cfg.id}" title="ターミナルで開く">&gt;_</button>
     </div>`;
 
   card.addEventListener('click', e => {
@@ -856,6 +880,11 @@ document.getElementById('f-name').addEventListener('input', e => {
 // モーダル外クリックで閉じる
 document.getElementById('modal').addEventListener('click', e => {
   if (e.target === document.getElementById('modal')) closeModal();
+});
+
+// ターミナル選択変更 → サーバーに保存
+document.getElementById('terminal-sel').addEventListener('change', e => {
+  send({ type: 'updateSettings', settings: { preferredTerminal: e.target.value } });
 });
 
 // ══════════════════════════════════════════════════════════════════

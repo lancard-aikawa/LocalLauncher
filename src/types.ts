@@ -23,9 +23,16 @@ export interface ServerConfig {
   restartDelay?: number; // 再起動時の待機ms（デフォルト: 1000）
 }
 
+export type PreferredTerminal = 'powershell' | 'cmd' | 'wt';
+
+export interface LauncherSettings {
+  preferredTerminal: PreferredTerminal;
+}
+
 export interface LauncherConfig {
   version: number;
   servers: ServerConfig[];
+  settings: LauncherSettings;
 }
 
 export type ServerStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';

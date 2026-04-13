@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
+import { exec } from 'child_process';
 import type { ServerManager } from '../manager';
-import type { LauncherConfig, ServerConfig } from '../types';
+import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
 import { upsertServer, removeServer, saveConfig } from '../config';
 
 type WS = ServerWebSocket<unknown>;
@@ -105,17 +106,86 @@ export class WebServer {
         });
         break;
       }
+
+      case 'openExplorer': {
+        const dir = this.resolveDir(id);
+        this.openExplorer(dir);
+        break;
+      }
+
+      case 'openTerminal': {
+        const dir = this.resolveDir(id);
+        this.openTerminal(dir);
+        break;
+      }
+
+      case 'updateSettings': {
+        const settings = msg.settings as LauncherSettings;
+        this.cfg = { ...this.cfg, settings };
+        saveConfig(this.cfg);
+        this.broadcastState();
+        break;
+      }
+    }
+  }
+
+  /** cwd が設定されていればそれを、なければランチャー自身の cwd を返す */
+  private resolveDir(id: string | undefined): string {
+    const cwd = id ? this.manager.getState(id)?.config.cwd : undefined;
+    return cwd || process.cwd();
+  }
+
+  private openExplorer(dir: string): void {
+    const d = dir.replace(/\//g, '\\');
+    // exec は Windows では cmd.exe /c で実行されるため explorer.exe をそのまま渡せる
+    exec(`explorer.exe "${d}"`, (err) => {
+      if (err) console.error('[LocalLauncher] explorer error:', err.message);
+    });
+  }
+
+  private openTerminal(dir: string): void {
+    const d = dir.replace(/\//g, '\\');
+    // パス中の単引用符をエスケープ（PowerShell 用）
+    const dPs = d.replace(/'/g, "''");
+    const term = this.cfg.settings?.preferredTerminal ?? 'powershell';
+
+    switch (term) {
+      case 'powershell':
+        // start "" でタイトルを空に指定して新しいウィンドウを開く
+        exec(`start "" powershell.exe -NoExit -Command "Set-Location '${dPs}'"`, (err) => {
+          if (err) console.error('[LocalLauncher] powershell error:', err.message);
+        });
+        break;
+
+      case 'cmd':
+        // /k でコマンド実行後もウィンドウを保持
+        exec(`start "" cmd.exe /k cd /d "${d}"`, (err) => {
+          if (err) console.error('[LocalLauncher] cmd error:', err.message);
+        });
+        break;
+
+      case 'wt':
+        exec(`wt.exe -d "${d}"`, (err) => {
+          if (err) {
+            // Windows Terminal が見つからない場合は PowerShell にフォールバック
+            console.warn('[LocalLauncher] wt not found, falling back to PowerShell');
+            exec(`start "" powershell.exe -NoExit -Command "Set-Location '${dPs}'"`, (err2) => {
+              if (err2) console.error('[LocalLauncher] powershell fallback error:', err2.message);
+            });
+          }
+        });
+        break;
     }
   }
 
   // ── 状態配信 ─────────────────────────────────────────────────────────────
 
   private sendState(ws: WS): void {
-    ws.send(JSON.stringify({ type: 'state', servers: this.buildPayload() }));
+    ws.send(JSON.stringify({ type: 'state', servers: this.buildPayload(), settings: this.cfg.settings }));
   }
 
   private broadcastState(): void {
-    this.broadcast({ type: 'state', servers: this.buildPayload() });
+    this.broadcast({ type: 'state', servers: this.buildPayload(), settings: this.cfg.settings });
   }
 
   /** 頻繁に呼ばれる onUpdate をデバウンス（50ms）して過剰配信を防ぐ */
