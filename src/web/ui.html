@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LocalLauncher</title>
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0d0d1a;
+  --sur:      #1a1a2e;
+  --sur2:     #252542;
+  --sur3:     #2e2e50;
+  --bdr:      #333358;
+  --text:     #e2e8f0;
+  --dim:      #64748b;
+  --green:    #4ade80;
+  --red:      #f87171;
+  --yellow:   #fbbf24;
+  --blue:     #60a5fa;
+  --purple:   #a78bfa;
+  --cyan:     #34d399;
+  --accent:   #7c3aed;
+}
+
+body {
+  font-family: 'Consolas', 'Menlo', 'Monaco', monospace;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--sur);
+  border-bottom: 1px solid var(--bdr);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.logo { font-size: 15px; font-weight: bold; letter-spacing: .04em; color: var(--purple); }
+.logo span { color: var(--text); }
+
+.header-right { display: flex; align-items: center; gap: 10px; }
+
+.ws-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dim); flex-shrink: 0;
+  transition: background .3s;
+}
+.ws-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.ws-dot.err { background: var(--red); }
+
+.layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────── */
+.sidebar {
+  width: 300px;
+  min-width: 220px;
+  flex-shrink: 0;
+  background: var(--sur);
+  border-right: 1px solid var(--bdr);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-empty {
+  padding: 24px 16px;
+  color: var(--dim);
+  text-align: center;
+  line-height: 1.8;
+}
+
+/* ── Server card ──────────────────────────────────────────────────── */
+.card {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bdr);
+  cursor: pointer;
+  transition: background .1s;
+  border-left: 3px solid transparent;
+}
+.card:hover { background: var(--sur2); }
+.card.sel   { background: var(--sur2); border-left-color: var(--accent); }
+
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+
+.dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--dim);
+}
+.dot.running  { background: var(--green); box-shadow: 0 0 5px var(--green44); }
+.dot.starting, .dot.stopping { background: var(--yellow); animation: pulse 1s infinite; }
+.dot.stopped  { background: var(--dim); }
+.dot.error    { background: var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .4; }
+}
+
+.card-name {
+  font-weight: bold;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-gear {
+  background: none; border: none; color: var(--dim);
+  cursor: pointer; font-size: 14px; padding: 2px 4px;
+  border-radius: 3px; flex-shrink: 0;
+  transition: color .15s, background .15s;
+}
+.btn-gear:hover { color: var(--text); background: var(--sur3); }
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  background: var(--sur3);
+  border: 1px solid var(--bdr);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: var(--text);
+}
+
+.port { color: var(--cyan); }
+.port.conflict { color: var(--yellow); }
+.auto-star { color: var(--yellow); font-size: 11px; }
+.uptime { color: var(--dim); }
+
+.card-actions {
+  display: flex;
+  gap: 5px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.btn {
+  padding: 4px 10px;
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--sur3);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: background .12s, border-color .12s;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--sur2); border-color: var(--dim); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: bold;
+}
+.btn-primary:hover:not(:disabled) { background: #6d28d9; border-color: #6d28d9; }
+
+.btn-green { border-color: #16653a; }
+.btn-green:hover:not(:disabled) { background: #14532d; border-color: var(--green); color: var(--green); }
+
+.btn-red { border-color: #7f1d1d; }
+.btn-red:hover:not(:disabled) { background: #7f1d1d; border-color: var(--red); color: var(--red); }
+
+.btn-danger { background: #7f1d1d; border-color: var(--red); color: var(--red); }
+.btn-danger:hover:not(:disabled) { background: #991b1b; }
+
+/* ── Log panel ────────────────────────────────────────────────────── */
+.log-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--sur);
+  border-bottom: 1px solid var(--bdr);
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.log-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 14px;
+  line-height: 1.65;
+  font-size: 12px;
+  min-height: 0;
+}
+
+.log-line { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
+.log-line.err { color: #fca5a5; }
+
+/* ANSI color spans */
+.a-bold    { font-weight: bold; }
+.a-red     { color: var(--red); }
+.a-green   { color: var(--green); }
+.a-yellow  { color: var(--yellow); }
+.a-blue    { color: var(--blue); }
+.a-magenta { color: var(--purple); }
+.a-cyan    { color: var(--cyan); }
+.a-white   { color: var(--text); }
+.a-dim     { opacity: .5; }
+
+.log-empty {
+  color: var(--dim);
+  padding: 20px;
+  text-align: center;
+}
+
+.scroll-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 20px;
+  background: var(--accent);
+  border: none;
+  border-radius: 20px;
+  color: #fff;
+  cursor: pointer;
+  padding: 5px 12px;
+  font-size: 12px;
+  opacity: .85;
+  transition: opacity .15s;
+  display: none;
+}
+.scroll-btn.visible { display: block; }
+.log-panel { position: relative; }
+
+/* ── Modal ────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.7);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.modal-backdrop.hidden { display: none; }
+
+.modal-box {
+  background: var(--sur);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  width: 540px;
+  max-width: 100%;
+  max-height: 90dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--bdr);
+  flex-shrink: 0;
+}
+.modal-head h2 { font-size: 15px; }
+
+.modal-body { padding: 18px; overflow-y: auto; }
+
+.modal-foot {
+  padding: 14px 18px;
+  border-top: 1px solid var(--bdr);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.modal-foot-right { display: flex; gap: 8px; }
+
+/* ── Form ─────────────────────────────────────────────────────────── */
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  transition: border-color .15s;
+}
+.form-group input:focus,
+.form-group select:focus { outline: none; border-color: var(--accent); }
+.form-row { display: flex; gap: 10px; }
+.form-row .form-group { flex: 1; }
+
+.hint { font-size: 11px; color: var(--dim); margin-top: 4px; }
+
+/* Env var rows */
+.env-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.env-row { display: flex; align-items: center; gap: 6px; }
+.env-row input { flex: 1; }
+.env-row .eq { color: var(--dim); flex-shrink: 0; }
+.env-del {
+  background: none; border: 1px solid var(--bdr); border-radius: 4px;
+  color: var(--red); cursor: pointer; width: 26px; height: 26px;
+  font-size: 14px; flex-shrink: 0; transition: background .1s;
+}
+.env-del:hover { background: #7f1d1d33; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* Checkbox */
+.check-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.check-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="logo">🚀 <span>LocalLauncher</span></div>
+  <div class="header-right">
+    <div class="ws-dot" id="ws-dot" title="WebSocket接続状態"></div>
+    <button class="btn btn-primary" id="btn-add">＋ 追加</button>
+  </div>
+</header>
+
+<!-- ── Layout ──────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- Server sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-empty">サーバーがありません。<br>「＋ 追加」で登録してください。</div>
+  </aside>
+
+  <!-- Log panel -->
+  <section class="log-panel">
+    <div class="log-header">
+      <span class="log-title" id="log-title">サーバーを選択してください</span>
+      <div class="log-actions" id="log-actions" style="display:none">
+        <button class="btn" id="btn-log-clear">ログ消去</button>
+      </div>
+    </div>
+    <div class="log-body" id="log-body">
+      <div class="log-empty">サーバーを選択するとログが表示されます</div>
+    </div>
+    <button class="scroll-btn" id="scroll-btn">↓ 最新へ</button>
+  </section>
+
+</div>
+
+<!-- ── Modal ───────────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modal-title">サーバー追加</h2>
+      <button class="btn" id="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="srv-form" autocomplete="off">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>サーバー名 *</label>
+            <input type="text" id="f-name" placeholder="My App" required>
+          </div>
+          <div class="form-group">
+            <label>ID *</label>
+            <input type="text" id="f-id" placeholder="my-app"
+                   pattern="[a-z0-9\-]+" title="英小文字・数字・ハイフン" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>ランタイム *</label>
+            <select id="f-runtime">
+              <option>bun</option>
+              <option>node</option>
+              <option>npm</option>
+              <option>python</option>
+              <option>python3</option>
+              <option>cmd</option>
+              <option>powershell</option>
+              <option>raw</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>ポート番号</label>
+            <input type="number" id="f-port" placeholder="3000" min="1" max="65535">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>コマンド *</label>
+          <input type="text" id="f-command" placeholder="dev / server.py / emulators:start …" required>
+          <div class="hint" id="f-command-hint"></div>
+        </div>
+
+        <div class="form-group">
+          <label>追加引数（スペース区切り）</label>
+          <input type="text" id="f-args" placeholder="--host 0.0.0.0 --port 3000">
+        </div>
+
+        <div class="form-group">
+          <label>作業ディレクトリ（cwd）</label>
+          <input type="text" id="f-cwd" placeholder="C:\projects\myapp（空でカレント）">
+        </div>
+
+        <div class="form-group">
+          <label>環境変数</label>
+          <div class="env-list" id="env-list"></div>
+          <button type="button" class="btn" id="btn-env-add" style="font-size:12px">＋ 環境変数を追加</button>
+        </div>
+
+        <div class="form-group">
+          <label>カスタム停止コマンド</label>
+          <input type="text" id="f-stop" placeholder="空でプロセスキル (taskkill)">
+        </div>
+
+        <div class="form-group">
+          <label class="check-row">
+            <input type="checkbox" id="f-autostart">
+            <span>ランチャー起動時に自動スタート ★</span>
+          </label>
+        </div>
+
+        <!-- hidden: editing id -->
+        <input type="hidden" id="f-editing">
+      </form>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-danger hidden" id="btn-delete">削除</button>
+      <div class="modal-foot-right">
+        <button type="button" class="btn" id="btn-cancel">キャンセル</button>
+        <button type="submit" form="srv-form" class="btn btn-primary" id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  State
+// ══════════════════════════════════════════════════════════════════
+const state = {
+  servers: [],      // ServerPayload[]
+  selId: null,      // string | null
+  logs: new Map(),  // id → string[]
+  autoScroll: true,
+};
+
+// ══════════════════════════════════════════════════════════════════
+//  WebSocket
+// ══════════════════════════════════════════════════════════════════
+let ws = null;
+
+function connectWs() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    const dot = document.getElementById('ws-dot');
+    dot.classList.add('ok'); dot.classList.remove('err');
+    dot.title = '接続中';
+  };
+
+  ws.onclose = () => {
+    const dot = document.getElementById('ws-dot');
+    dot.classList.remove('ok'); dot.classList.add('err');
+    dot.title = '切断 — 再接続中…';
+    setTimeout(connectWs, 2500);
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if      (msg.type === 'state') onStateMsg(msg.servers);
+    else if (msg.type === 'log')   onLogMsg(msg.id, msg.line);
+  };
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Message handlers
+// ══════════════════════════════════════════════════════════════════
+
+function onStateMsg(servers) {
+  state.servers = servers;
+
+  // 初回ログ初期化 / 削除されたサーバーのログをクリア
+  const ids = new Set(servers.map(s => s.config.id));
+  for (const id of state.logs.keys()) if (!ids.has(id)) state.logs.delete(id);
+  for (const s of servers) {
+    if (!state.logs.has(s.config.id)) state.logs.set(s.config.id, [...s.logs]);
+  }
+
+  // 選択中サーバーが消えた場合
+  if (state.selId && !ids.has(state.selId)) state.selId = null;
+
+  renderSidebar();
+  renderLogHeader();
+  if (state.selId) renderLogs();
+}
+
+function onLogMsg(id, line) {
+  let logs = state.logs.get(id);
+  if (!logs) { logs = []; state.logs.set(id, logs); }
+  logs.push(line);
+  if (logs.length > 500) logs.shift();
+
+  if (id === state.selId) appendLogLine(line);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Sidebar rendering
+// ══════════════════════════════════════════════════════════════════
+
+function renderSidebar() {
+  const sb = document.getElementById('sidebar');
+  if (state.servers.length === 0) {
+    sb.innerHTML = '<div class="sidebar-empty">サーバーがありません。<br>「＋ 追加」で登録してください。</div>';
+    return;
+  }
+  sb.innerHTML = '';
+  for (const s of state.servers) sb.appendChild(makeCard(s));
+}
+
+function makeCard(s) {
+  const { config: cfg, status, portConflict, startTime } = s;
+  const isSel = cfg.id === state.selId;
+
+  const card = document.createElement('div');
+  card.className = `card${isSel ? ' sel' : ''}`;
+  card.dataset.id = cfg.id;
+
+  const portText = cfg.port
+    ? `<span class="port${portConflict ? ' conflict' : ''}">:${cfg.port}${portConflict ? ' ⚡' : ''}</span>`
+    : '';
+
+  const up = status === 'running' && startTime
+    ? `<span class="uptime">${fmtUp(startTime)}</span>` : '';
+
+  const running   = status === 'running'  || status === 'starting';
+  const stopped   = status === 'stopped'  || status === 'stopping' || status === 'error';
+  const canRestart = status === 'running';
+
+  card.innerHTML = `
+    <div class="card-top">
+      <span class="dot ${status}"></span>
+      <span class="card-name" title="${esc(cfg.name)}">${esc(cfg.name)}</span>
+      <button class="btn-gear" data-edit="${cfg.id}" title="編集">⚙</button>
+    </div>
+    <div class="card-meta">
+      <span class="badge">${cfg.runtime}</span>
+      ${portText}
+      ${cfg.autoStart ? '<span class="auto-star" title="自動起動">★</span>' : ''}
+      ${up}
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-green" data-action="start"   data-id="${cfg.id}" ${running  ? 'disabled' : ''}>▶ 起動</button>
+      <button class="btn btn-red"   data-action="stop"    data-id="${cfg.id}" ${stopped  ? 'disabled' : ''}>■ 停止</button>
+      <button class="btn"           data-action="restart" data-id="${cfg.id}" ${canRestart ? '' : 'disabled'}>↻</button>
+    </div>`;
+
+  card.addEventListener('click', e => {
+    const t = e.target;
+    if (t.dataset.action) {
+      e.stopPropagation();
+      send({ type: t.dataset.action, id: t.dataset.id });
+    } else if (t.dataset.edit) {
+      e.stopPropagation();
+      openEdit(t.dataset.edit);
+    } else {
+      selectServer(cfg.id);
+    }
+  });
+
+  return card;
+}
+
+function selectServer(id) {
+  state.selId = id;
+  renderSidebar();
+  renderLogHeader();
+  renderLogs();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Log panel
+// ══════════════════════════════════════════════════════════════════
+
+function renderLogHeader() {
+  const s = state.servers.find(s => s.config.id === state.selId);
+  const title = document.getElementById('log-title');
+  const actions = document.getElementById('log-actions');
+
+  if (!s) {
+    title.textContent = 'サーバーを選択してください';
+    actions.style.display = 'none';
+    return;
+  }
+
+  const port = s.config.port ? ` :${s.config.port}` : '';
+  const st = { running:'● Running', starting:'◌ Starting…', stopping:'◌ Stopping…', stopped:'○ Stopped', error:'✗ Error' };
+  title.textContent = `${s.config.name}${port}  ${st[s.status] ?? s.status}`;
+  actions.style.display = 'flex';
+}
+
+function renderLogs() {
+  const body = document.getElementById('log-body');
+  body.innerHTML = '';
+  const logs = state.logs.get(state.selId) ?? [];
+  if (logs.length === 0) {
+    body.innerHTML = '<div class="log-empty">ログがありません</div>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const line of logs) {
+    frag.appendChild(makeLogLine(line));
+  }
+  body.appendChild(frag);
+  if (state.autoScroll) body.scrollTop = body.scrollHeight;
+}
+
+function appendLogLine(line) {
+  const body = document.getElementById('log-body');
+
+  // 空プレースホルダーを消す
+  const empty = body.querySelector('.log-empty');
+  if (empty) empty.remove();
+
+  body.appendChild(makeLogLine(line));
+
+  // DOMが増えすぎたら古い行を削除
+  while (body.children.length > 600) body.removeChild(body.firstChild);
+
+  if (state.autoScroll) body.scrollTop = body.scrollHeight;
+}
+
+function makeLogLine(raw) {
+  const el = document.createElement('div');
+  el.className = 'log-line' + (raw.includes('[ERR]') ? ' err' : '');
+  el.innerHTML = ansi(esc(raw));
+  return el;
+}
+
+// ── オートスクロール制御
+const logBody = document.getElementById('log-body');
+logBody.addEventListener('scroll', () => {
+  const { scrollHeight, scrollTop, clientHeight } = logBody;
+  state.autoScroll = scrollHeight - scrollTop - clientHeight < 60;
+  document.getElementById('scroll-btn').classList.toggle('visible', !state.autoScroll);
+});
+
+document.getElementById('scroll-btn').addEventListener('click', () => {
+  state.autoScroll = true;
+  logBody.scrollTop = logBody.scrollHeight;
+  document.getElementById('scroll-btn').classList.remove('visible');
+});
+
+document.getElementById('btn-log-clear').addEventListener('click', () => {
+  if (state.selId) {
+    send({ type: 'clearLogs', id: state.selId });
+    state.logs.set(state.selId, []);
+    renderLogs();
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  Modal — Add / Edit
+// ══════════════════════════════════════════════════════════════════
+
+const RUNTIME_HINTS = {
+  bun:        'スクリプト名またはファイル (例: dev, src/server.ts)',
+  node:       'JSファイルパス (例: server.js)',
+  npm:        'package.json スクリプト名 (例: dev)',
+  python:     'Pythonファイルパス (例: main.py)',
+  python3:    'Pythonファイルパス (例: main.py)',
+  cmd:        'コマンドまたはスクリプト (例: firebase emulators:start)',
+  powershell: 'PSコマンドまたはスクリプトパス (例: .\\start.ps1)',
+  raw:        'フルコマンド (例: C:\\tools\\server.exe --port 3000)',
+};
+
+function openAdd() {
+  document.getElementById('modal-title').textContent = 'サーバー追加';
+  document.getElementById('srv-form').reset();
+  document.getElementById('f-editing').value = '';
+  document.getElementById('env-list').innerHTML = '';
+  document.getElementById('btn-delete').classList.add('hidden');
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function openEdit(id) {
+  const s = state.servers.find(s => s.config.id === id);
+  if (!s) return;
+  const c = s.config;
+
+  document.getElementById('modal-title').textContent = 'サーバー編集';
+  document.getElementById('f-name').value    = c.name;
+  document.getElementById('f-id').value      = c.id;
+  document.getElementById('f-editing').value = c.id;
+  document.getElementById('f-runtime').value = c.runtime;
+  document.getElementById('f-command').value = c.command;
+  document.getElementById('f-args').value    = c.args?.join(' ') ?? '';
+  document.getElementById('f-cwd').value     = c.cwd ?? '';
+  document.getElementById('f-port').value    = c.port?.toString() ?? '';
+  document.getElementById('f-autostart').checked = c.autoStart ?? false;
+  document.getElementById('f-stop').value    = c.stopCommand ?? '';
+
+  const envList = document.getElementById('env-list');
+  envList.innerHTML = '';
+  if (c.env) for (const [k, v] of Object.entries(c.env)) addEnvRow(k, v);
+
+  document.getElementById('btn-delete').classList.remove('hidden');
+  document.getElementById('modal').classList.remove('hidden');
+  updateCommandHint();
+}
+
+function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+function addEnvRow(k = '', v = '') {
+  const row = document.createElement('div');
+  row.className = 'env-row';
+  row.innerHTML = `
+    <input type="text" class="env-k" placeholder="KEY" value="${esc(k)}">
+    <span class="eq">=</span>
+    <input type="text" class="env-v" placeholder="VALUE" value="${esc(v)}">
+    <button type="button" class="env-del" title="削除">−</button>`;
+  row.querySelector('.env-del').addEventListener('click', () => row.remove());
+  document.getElementById('env-list').appendChild(row);
+}
+
+function updateCommandHint() {
+  const rt = document.getElementById('f-runtime').value;
+  document.getElementById('f-command-hint').textContent = RUNTIME_HINTS[rt] ?? '';
+}
+
+// フォーム送信
+document.getElementById('srv-form').addEventListener('submit', e => {
+  e.preventDefault();
+
+  const name    = document.getElementById('f-name').value.trim();
+  const id      = document.getElementById('f-id').value.trim();
+  const editing = document.getElementById('f-editing').value;
+  const runtime = document.getElementById('f-runtime').value;
+  const command = document.getElementById('f-command').value.trim();
+  const argsRaw = document.getElementById('f-args').value.trim();
+  const cwd     = document.getElementById('f-cwd').value.trim();
+  const portRaw = document.getElementById('f-port').value.trim();
+  const autoStart = document.getElementById('f-autostart').checked;
+  const stopCmd = document.getElementById('f-stop').value.trim();
+
+  if (!name || !id || !command) { alert('名前・ID・コマンドは必須です。'); return; }
+
+  const args = argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : undefined;
+  const port = portRaw ? parseInt(portRaw, 10) : undefined;
+
+  const env = {};
+  for (const row of document.querySelectorAll('.env-row')) {
+    const k = row.querySelector('.env-k').value.trim();
+    const v = row.querySelector('.env-v').value;
+    if (k) env[k] = v;
+  }
+
+  const server = {
+    id, name, runtime, command,
+    ...(args?.length ? { args } : {}),
+    ...(cwd         ? { cwd }  : {}),
+    ...(Object.keys(env).length ? { env } : {}),
+    ...(port        ? { port } : {}),
+    autoStart,
+    ...(stopCmd     ? { stopCommand: stopCmd } : {}),
+  };
+
+  send({ type: editing ? 'editServer' : 'addServer', server });
+  closeModal();
+});
+
+// 削除ボタン
+document.getElementById('btn-delete').addEventListener('click', () => {
+  const id = document.getElementById('f-editing').value;
+  if (!id) return;
+  if (!confirm(`'${id}' を削除しますか?`)) return;
+  send({ type: 'removeServer', id });
+  if (state.selId === id) state.selId = null;
+  closeModal();
+});
+
+// イベント連結
+document.getElementById('btn-add').addEventListener('click', openAdd);
+document.getElementById('btn-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('btn-env-add').addEventListener('click', () => addEnvRow());
+document.getElementById('f-runtime').addEventListener('change', updateCommandHint);
+
+// 名前→ID自動生成
+document.getElementById('f-name').addEventListener('input', e => {
+  if (!document.getElementById('f-editing').value) {
+    document.getElementById('f-id').value =
+      e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+});
+
+// モーダル外クリックで閉じる
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  Uptime 自動更新（1秒ごと）
+// ══════════════════════════════════════════════════════════════════
+setInterval(() => {
+  document.querySelectorAll('.uptime').forEach(el => {
+    const id = el.closest('.card')?.dataset.id;
+    const s  = state.servers.find(s => s.config.id === id);
+    if (s?.status === 'running' && s.startTime) el.textContent = fmtUp(s.startTime);
+  });
+}, 1000);
+
+// ══════════════════════════════════════════════════════════════════
+//  Utilities
+// ══════════════════════════════════════════════════════════════════
+
+function fmtUp(iso) {
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 60)   return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** ANSI エスケープ → HTML span（HTMLエスケープ済み文字列に適用） */
+function ansi(s) {
+  return s
+    .replace(/\x1b\[0m/g,  '</span>')
+    .replace(/\x1b\[1m/g,  '<span class="a-bold">')
+    .replace(/\x1b\[2m/g,  '<span class="a-dim">')
+    .replace(/\x1b\[31m/g, '<span class="a-red">')
+    .replace(/\x1b\[32m/g, '<span class="a-green">')
+    .replace(/\x1b\[33m/g, '<span class="a-yellow">')
+    .replace(/\x1b\[34m/g, '<span class="a-blue">')
+    .replace(/\x1b\[35m/g, '<span class="a-magenta">')
+    .replace(/\x1b\[36m/g, '<span class="a-cyan">')
+    .replace(/\x1b\[37m/g, '<span class="a-white">')
+    .replace(/\x1b\[[0-9;]*m/g, ''); // 残りのエスケープは除去
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Init
+// ══════════════════════════════════════════════════════════════════
+connectWs();
+updateCommandHint();
+</script>
+</body>
+</html>
