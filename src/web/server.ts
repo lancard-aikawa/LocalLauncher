@@ -2,8 +2,9 @@ import type { ServerWebSocket } from 'bun';
 import { exec } from 'child_process';
 import type { ServerManager } from '../manager';
 import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
-import { upsertServer, removeServer, saveConfig } from '../config';
+import { upsertServer, removeServer, saveConfig, loadConfig, getConfigDir } from '../config';
 import { detectPorts } from '../portDetector';
+import { checkPortAvailable } from '../portChecker';
 
 type WS = ServerWebSocket<unknown>;
 
@@ -71,7 +72,7 @@ export class WebServer {
 
   // ── WebSocket メッセージ処理 ──────────────────────────────────────────────
 
-  private handleWsMessage(ws: WS, raw: string): void {
+  private async handleWsMessage(ws: WS, raw: string): Promise<void> {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(raw); } catch { return; }
 
@@ -132,6 +133,62 @@ export class WebServer {
         const cwd = (msg.cwd as string | undefined) || process.cwd();
         const ports = detectPorts(cwd);
         ws.send(JSON.stringify({ type: 'detectedPorts', ports }));
+        break;
+      }
+
+      case 'reloadConfig': {
+        try {
+          this.cfg = loadConfig();
+          this.manager.syncServers(this.cfg.servers);
+          this.broadcastState();
+          ws.send(JSON.stringify({ type: 'toast', message: '設定を再読み込みしました', level: 'ok' }));
+        } catch {
+          ws.send(JSON.stringify({ type: 'toast', message: '再読み込みに失敗しました', level: 'err' }));
+        }
+        break;
+      }
+
+      case 'openConfigFolder': {
+        this.openExplorer(getConfigDir());
+        break;
+      }
+
+      case 'exportConfig': {
+        ws.send(JSON.stringify({ type: 'configExport', data: JSON.stringify(this.cfg, null, 2) }));
+        break;
+      }
+
+      case 'importConfig': {
+        const raw = msg.data as string;
+        try {
+          const imported = JSON.parse(raw) as LauncherConfig;
+          if (!Array.isArray(imported.servers)) throw new Error('servers フィールドが不正です');
+          // port → ports マイグレーション
+          for (const s of imported.servers) {
+            const leg = s as LauncherConfig['servers'][number] & { port?: number };
+            if (leg.port !== undefined && !s.ports?.length) { s.ports = [leg.port]; delete leg.port; }
+          }
+          if (!imported.settings) imported.settings = this.cfg.settings;
+          this.cfg = imported;
+          saveConfig(this.cfg);
+          this.manager.syncServers(this.cfg.servers);
+          this.broadcastState();
+          ws.send(JSON.stringify({ type: 'toast', message: `インポートしました（${imported.servers.length} サーバー）`, level: 'ok' }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: 'toast', message: `インポート失敗: ${(e as Error).message}`, level: 'err' }));
+        }
+        break;
+      }
+
+      case 'checkPortStatus': {
+        const allPorts = [...new Set(this.cfg.servers.flatMap(s => s.ports ?? []))];
+        const results: Record<number, boolean> = {};
+        await Promise.all(allPorts.map(async port => {
+          // checkPortAvailable は使用可能（空き）なら true → 使用中なら false
+          const available = await checkPortAvailable(port);
+          results[port] = !available; // true = ポートが使用中（LISTENING）
+        }));
+        ws.send(JSON.stringify({ type: 'portStatus', status: results }));
         break;
       }
     }

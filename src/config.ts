@@ -15,6 +15,14 @@ export function getConfigPath(): string {
   return join(configDir(), 'config.json');
 }
 
+export function getConfigDir(): string {
+  return configDir();
+}
+
+export function getWebPidPath(): string {
+  return join(configDir(), 'web.pid');
+}
+
 const DEFAULTS: LauncherConfig = {
   version: 1,
   servers: [],

@@ -170,11 +170,31 @@ body {
   color: var(--cyan);
   text-decoration: none;
   border-bottom: 1px dashed transparent;
-  transition: border-color .15s;
+  transition: border-color .15s, color .2s;
 }
-.port:hover { border-bottom-color: var(--cyan); }
+.port:hover { border-bottom-color: currentColor; }
+
+/* ポートステータス別カラー */
+.port.ps-open    { color: var(--green); }   /* LISTENINGを確認 */
+.port.ps-down    { color: var(--yellow); }  /* running中だがポート未応答 */
+.port.ps-busy    { color: var(--red); }     /* 停止中なのにポート占有 */
+
+/* 旧: 起動時コンフリクト（後方互換）*/
 .port.conflict { color: var(--yellow); }
-.port.conflict:hover { border-bottom-color: var(--yellow); }
+
+/* ポートステータスインジケーター (小ドット) */
+.port-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 2px;
+  vertical-align: middle;
+  background: var(--dim);
+  transition: background .2s;
+}
+.port.ps-open  .port-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.port.ps-down  .port-dot { background: var(--yellow); }
+.port.ps-busy  .port-dot { background: var(--red); }
 .auto-star { color: var(--yellow); font-size: 11px; }
 .uptime { color: var(--dim); }
 
@@ -381,6 +401,66 @@ body {
 .check-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .check-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 
+/* ── Settings dropdown menu ───────────────────────────────────────── */
+.menu-wrap { position: relative; }
+
+.menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--sur);
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  min-width: 200px;
+  z-index: 150;
+  box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  padding: 4px 0;
+}
+.menu-dropdown.hidden { display: none; }
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  transition: background .1s;
+  user-select: none;
+}
+.menu-item:hover { background: var(--sur2); }
+.menu-item .mi-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+
+.menu-sep { height: 1px; background: var(--bdr); margin: 4px 0; }
+
+/* ── Toast notifications ─────────────────────────────────────────── */
+.toast-wrap {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  padding: 7px 20px;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+  animation: toast-in .18s ease;
+}
+.toast.ok  { background: #14532d; color: var(--green); border: 1px solid #166534; }
+.toast.err { background: #7f1d1d; color: var(--red);   border: 1px solid #991b1b; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Port detect chips */
 .detect-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .detect-chip {
@@ -412,10 +492,33 @@ body {
         <option value="wt">Windows Terminal</option>
       </select>
     </div>
+    <div class="menu-wrap">
+      <button class="btn" id="btn-menu" title="設定メニュー">⚙ 設定</button>
+      <div class="menu-dropdown hidden" id="menu-dropdown">
+        <div class="menu-item" id="menu-reload">
+          <span class="mi-icon">🔄</span>設定を再読み込み
+        </div>
+        <div class="menu-item" id="menu-folder">
+          <span class="mi-icon">📁</span>設定フォルダを開く
+        </div>
+        <div class="menu-sep"></div>
+        <div class="menu-item" id="menu-export">
+          <span class="mi-icon">📤</span>エクスポート
+        </div>
+        <div class="menu-item" id="menu-import">
+          <span class="mi-icon">📥</span>インポート
+        </div>
+      </div>
+    </div>
     <div class="ws-dot" id="ws-dot" title="WebSocket接続状態"></div>
     <button class="btn btn-primary" id="btn-add">＋ 追加</button>
   </div>
 </header>
+
+<!-- ファイル入力（インポート用・非表示） -->
+<input type="file" id="import-file" accept=".json" style="display:none">
+<!-- トースト通知 -->
+<div class="toast-wrap" id="toast-wrap"></div>
 
 <!-- ── Layout ──────────────────────────────────────────────────── -->
 <div class="layout">
@@ -541,10 +644,11 @@ body {
 //  State
 // ══════════════════════════════════════════════════════════════════
 const state = {
-  servers: [],      // ServerPayload[]
-  selId: null,      // string | null
-  logs: new Map(),  // id → string[]
+  servers: [],        // ServerPayload[]
+  selId: null,        // string | null
+  logs: new Map(),    // id → string[]
   autoScroll: true,
+  portStatus: {},     // Record<number, boolean>  true = LISTENING
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -559,6 +663,8 @@ function connectWs() {
     const dot = document.getElementById('ws-dot');
     dot.classList.add('ok'); dot.classList.remove('err');
     dot.title = '接続中';
+    // 接続後すぐにポート状態を取得
+    setTimeout(requestPortStatus, 300);
   };
 
   ws.onclose = () => {
@@ -573,6 +679,9 @@ function connectWs() {
     if      (msg.type === 'state')          onStateMsg(msg.servers, msg.settings);
     else if (msg.type === 'log')            onLogMsg(msg.id, msg.line);
     else if (msg.type === 'detectedPorts')  onDetectedPorts(msg.ports);
+    else if (msg.type === 'portStatus')     onPortStatus(msg.status);
+    else if (msg.type === 'toast')          showToast(msg.message, msg.level);
+    else if (msg.type === 'configExport')   onConfigExport(msg.data);
   };
 }
 
@@ -636,9 +745,29 @@ function makeCard(s) {
   card.className = `card${isSel ? ' sel' : ''}`;
   card.dataset.id = cfg.id;
 
-  const portText = (cfg.ports ?? []).map(p =>
-    `<a class="port${portConflict ? ' conflict' : ''}" href="http://localhost:${p}" target="_blank" title="http://localhost:${p} をブラウザで開く">:${p}${portConflict ? ' ⚡' : ''}</a>`
-  ).join(' ');
+  const portText = (cfg.ports ?? []).map(p => {
+    const listening = state.portStatus[p];          // true=使用中 false=空き undefined=未確認
+    const isRunning = status === 'running' || status === 'starting';
+    let psClass = '', psTip = '', dotHtml = '<span class="port-dot"></span>';
+    if (listening === true) {
+      if (isRunning) {
+        psClass = 'ps-open'; psTip = '✓ ポート確認済み（LISTENING）';
+      } else {
+        psClass = 'ps-busy'; psTip = '⚠ 他のプロセスがポートを使用中';
+      }
+    } else if (listening === false) {
+      if (isRunning) {
+        psClass = 'ps-down'; psTip = '⚠ 起動中ですがポートが応答なし';
+      } else {
+        psTip = 'ポート空き';
+      }
+    } else {
+      psTip = 'ポート状態を確認中…';
+    }
+    if (portConflict && !psClass) { psClass = 'conflict'; psTip = '起動時にポート競合を検出'; }
+    const title = `http://localhost:${p} — ${psTip}`;
+    return `<a class="port${psClass ? ' ' + psClass : ''}" href="http://localhost:${p}" target="_blank" title="${esc(title)}">${dotHtml}:${p}</a>`;
+  }).join(' ');
 
   const up = status === 'running' && startTime
     ? `<span class="uptime">${fmtUp(startTime)}</span>` : '';
@@ -987,6 +1116,45 @@ function onDetectedPorts(ports) {
   }
 }
 
+// ── ポートステータス更新 ──────────────────────────────────────────────────────
+function onPortStatus(status) {
+  state.portStatus = status ?? {};
+  // カードのポート表示だけ差分更新（サイドバー全再描画を避ける）
+  for (const s of state.servers) {
+    const card = document.querySelector(`.card[data-id="${s.config.id}"]`);
+    if (!card) continue;
+    const meta = card.querySelector('.card-meta');
+    if (!meta) continue;
+    // portText を再生成してカード内の port リンクを置き換え
+    const portNodes = meta.querySelectorAll('a.port');
+    const ports = s.config.ports ?? [];
+    const isRunning = s.status === 'running' || s.status === 'starting';
+    ports.forEach((p, i) => {
+      const a = portNodes[i];
+      if (!a) return;
+      const listening = state.portStatus[p];
+      let psClass = '', psTip = '';
+      if (listening === true) {
+        if (isRunning) { psClass = 'ps-open'; psTip = '✓ ポート確認済み（LISTENING）'; }
+        else           { psClass = 'ps-busy'; psTip = '⚠ 他のプロセスがポートを使用中'; }
+      } else if (listening === false) {
+        if (isRunning) { psClass = 'ps-down'; psTip = '⚠ 起動中ですがポートが応答なし'; }
+        else           { psTip = 'ポート空き'; }
+      } else {
+        psTip = 'ポート状態を確認中…';
+      }
+      a.className = 'port' + (psClass ? ' ' + psClass : '');
+      a.title = `http://localhost:${p} — ${psTip}`;
+    });
+  }
+}
+
+// ポートステータスをポーリング（5秒ごと）
+function requestPortStatus() {
+  if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'checkPortStatus' });
+}
+setInterval(requestPortStatus, 5000);
+
 // ══════════════════════════════════════════════════════════════════
 //  Uptime 自動更新（1秒ごと）
 // ══════════════════════════════════════════════════════════════════
@@ -1029,6 +1197,87 @@ function ansi(s) {
     .replace(/\x1b\[36m/g, '<span class="a-cyan">')
     .replace(/\x1b\[37m/g, '<span class="a-white">')
     .replace(/\x1b\[[0-9;]*m/g, ''); // 残りのエスケープは除去
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Settings menu
+// ══════════════════════════════════════════════════════════════════
+
+const menuBtn  = document.getElementById('btn-menu');
+const menuDrop = document.getElementById('menu-dropdown');
+
+menuBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  menuDrop.classList.toggle('hidden');
+});
+// メニュー外クリックで閉じる
+document.addEventListener('click', () => menuDrop.classList.add('hidden'));
+menuDrop.addEventListener('click', e => e.stopPropagation());
+
+document.getElementById('menu-reload').addEventListener('click', () => {
+  send({ type: 'reloadConfig' });
+  menuDrop.classList.add('hidden');
+});
+
+document.getElementById('menu-folder').addEventListener('click', () => {
+  send({ type: 'openConfigFolder' });
+  menuDrop.classList.add('hidden');
+});
+
+document.getElementById('menu-export').addEventListener('click', () => {
+  send({ type: 'exportConfig' });
+  menuDrop.classList.add('hidden');
+});
+
+document.getElementById('menu-import').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+  menuDrop.classList.add('hidden');
+});
+
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      // 構文チェック（クライアント側の早期エラー）
+      JSON.parse(ev.target.result);
+      send({ type: 'importConfig', data: ev.target.result });
+    } catch {
+      showToast('JSONの解析に失敗しました。ファイルを確認してください。', 'err');
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+  e.target.value = ''; // 同じファイルを再インポートできるようリセット
+});
+
+// ── エクスポート ──────────────────────────────────────────────────────────
+function onConfigExport(data) {
+  const date = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `locallauncher-${date}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('エクスポートしました', 'ok');
+}
+
+// ── トースト通知 ──────────────────────────────────────────────────────────
+function showToast(message, level = 'ok') {
+  const wrap = document.getElementById('toast-wrap');
+  const el   = document.createElement('div');
+  el.className   = `toast ${level}`;
+  el.textContent = message;
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .3s';
+    el.style.opacity    = '0';
+    setTimeout(() => el.remove(), 300);
+  }, 2500);
 }
 
 // ══════════════════════════════════════════════════════════════════

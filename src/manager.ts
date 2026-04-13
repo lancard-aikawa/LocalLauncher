@@ -18,8 +18,18 @@ function buildCmd(cfg: ServerConfig): [string, string[]] {
     case 'npm':        return ['npm',        ['run', command, ...args]];
     case 'python':     return ['python',     [command, ...args]];
     case 'python3':    return ['python3',    [command, ...args]];
-    case 'cmd':        return ['cmd',        ['/c', command, ...args]];
-    case 'powershell': return ['powershell', ['-ExecutionPolicy', 'Bypass', '-Command', command, ...args]];
+    case 'cmd':
+      // chcp 65001 でコードページをUTF-8に切り替えてから実行（文字化け防止）
+      return ['cmd', ['/c', `chcp 65001 > nul 2>&1 & ${command}`, ...args]];
+    case 'powershell': {
+      // .cmd/.bat/.ps1 をパス指定なしで渡すと PowerShell がカレントディレクトリを探さない。
+      // 拡張子があってパス区切り文字を含まない場合は .\ を自動付与する。
+      const needsRelPath = /\.(cmd|bat|ps1)$/i.test(command) && !/[/\\]/.test(command);
+      const psCmd = needsRelPath ? `.\\${command}` : command;
+      // OutputEncoding を UTF-8 に設定してから実行（文字化け防止）
+      const utf8Setup = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$OutputEncoding=[System.Text.Encoding]::UTF8;';
+      return ['powershell', ['-ExecutionPolicy', 'Bypass', '-Command', utf8Setup + psCmd, ...args]];
+    }
     case 'raw': {
       const parts = command.trim().split(/\s+/);
       return [parts[0], [...parts.slice(1), ...args]];
@@ -88,6 +98,8 @@ export class ServerManager {
       env:          { ...process.env, ...config.env },
       shell:        IS_WIN,   // Windowsでは.cmdファイルを解決するためshell:true
       windowsHide:  true,
+      // stdin をパイプしない（子プロセスが stdin リダイレクト非対応でも動作するよう）
+      stdio:        ['ignore', 'pipe', 'pipe'],
     });
 
     this.procs.set(id, proc);

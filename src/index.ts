@@ -1,10 +1,10 @@
-import { loadConfig, saveConfig, upsertServer, removeServer, getConfigPath } from './config';
+import { loadConfig, saveConfig, upsertServer, removeServer, getConfigPath, getWebPidPath } from './config';
 import { ServerManager } from './manager';
 import { Dashboard } from './dashboard';
 import { promptServerForm } from './prompts';
 import { checkPortAvailable, findDuplicatePorts } from './portChecker';
 import { execSync } from 'child_process';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 
 const [,, cmd, ...rest] = process.argv;
@@ -123,13 +123,51 @@ async function main() {
       const portEq  = rest.find(a => a.startsWith('--port=') || a.startsWith('-p='))?.split('=')[1];
       const portIdx = rest.findIndex(a => a === '--port' || a === '-p');
       const portArg = portEq ?? (portIdx >= 0 ? rest[portIdx + 1] : undefined);
-      const webPort = parseInt(portArg ?? '7474', 10);
+      const requestedPort = parseInt(portArg ?? '7474', 10);
       const doOpen   = rest.includes('--open') || rest.includes('-o');
 
-      const manager = new ServerManager(cfg.servers, () => {});
+      // ── 既存インスタンスを自動停止（二重起動 / config競合を防ぐ） ────────
+      const pidPath = getWebPidPath();
+      if (existsSync(pidPath)) {
+        const oldPid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
+        if (!isNaN(oldPid) && oldPid > 0 && oldPid !== process.pid) {
+          let alive = false;
+          try { process.kill(oldPid, 0); alive = true; } catch {}
+          if (alive) {
+            console.log(`既存の Web UI（PID ${oldPid}）を停止しています…`);
+            try {
+              if (process.platform === 'win32') {
+                execSync(`taskkill /F /T /PID ${oldPid}`, { stdio: 'ignore' });
+              } else {
+                process.kill(oldPid, 'SIGTERM');
+              }
+              // プロセスとポート解放を待つ
+              await new Promise<void>(r => setTimeout(r, 500));
+            } catch {}
+          }
+        }
+        try { unlinkSync(pidPath); } catch {}
+      }
+
+      // 旧インスタンス停止後に config.json を再読み込み（最新状態を使う）
+      const webCfg = loadConfig();
+
+      // 指定ポートが塞がっていたら空きポートを自動で探す
+      let webPort = requestedPort;
+      for (let p = requestedPort; p < requestedPort + 10; p++) {
+        if (await checkPortAvailable(p)) { webPort = p; break; }
+      }
+      if (webPort !== requestedPort) {
+        console.log(`⚠ ポート ${requestedPort} は使用中のため、${webPort} を使用します。`);
+      }
+
+      const manager = new ServerManager(webCfg.servers, () => {});
       const { WebServer } = await import('./web/server');
-      const webServer = new WebServer(manager, cfg, webPort);
+      const webServer = new WebServer(manager, webCfg, webPort);
       webServer.start();
+
+      // PID ファイルを書き込む（stop-web で参照する）
+      try { writeFileSync(pidPath, String(process.pid), 'utf-8'); } catch {}
 
       if (doOpen) {
         try {
@@ -139,7 +177,7 @@ async function main() {
         } catch { /* ignore */ }
       }
 
-      const autoIds = cfg.servers.filter(s => s.autoStart).map(s => s.id);
+      const autoIds = webCfg.servers.filter(s => s.autoStart).map(s => s.id);
       if (autoIds.length) {
         setTimeout(() => {
           for (const id of autoIds) manager.start(id).catch(() => {});
@@ -151,12 +189,58 @@ async function main() {
         const shutdown = async () => {
           console.log('\nサーバーを停止中…');
           await manager.stopAll();
+          try { unlinkSync(pidPath); } catch {}
           resolve();
         };
         process.once('SIGINT',  shutdown);
         process.once('SIGTERM', shutdown);
       });
       process.exit(0);
+      break;
+    }
+
+    // ─────────────────────────────────────────────── stop-web ─────────────
+    case 'stop-web': {
+      const portArg2 = rest.find(a => /^\d+$/.test(a));
+      const targetPort = parseInt(portArg2 ?? '7474', 10);
+
+      const pidPath = getWebPidPath();
+
+      // PID ファイルから取得（最も確実）
+      let pidFromFile: string | null = null;
+      if (existsSync(pidPath)) {
+        pidFromFile = readFileSync(pidPath, 'utf-8').trim();
+      }
+
+      if (!pidFromFile) {
+        console.log('Web UI の PID ファイルが見つかりません。すでに停止しているか、古いバージョンで起動した可能性があります。');
+        console.log(`（手動で停止する場合: ポート ${targetPort} を使用しているプロセスを終了してください）`);
+        break;
+      }
+
+      const pid = pidFromFile;
+      if (process.platform === 'win32') {
+        try {
+          execSync(`taskkill /F /T /PID ${pid}`, { encoding: 'utf-8' });
+          console.log(`✓ PID ${pid} を停止しました。`);
+        } catch (e) {
+          // プロセスが既に存在しない場合も PID ファイルは削除する
+          const msg = (e as Error).message;
+          if (msg.includes('not found') || msg.includes('見つかりません')) {
+            console.log(`PID ${pid} はすでに停止しています。`);
+          } else {
+            console.error(`✗ 停止に失敗: ${msg}`);
+          }
+        }
+      } else {
+        try {
+          process.kill(parseInt(pid, 10), 'SIGTERM');
+          console.log(`✓ PID ${pid} を停止しました。`);
+        } catch {
+          console.log(`PID ${pid} はすでに停止しています。`);
+        }
+      }
+      try { unlinkSync(pidPath); } catch { /* ignore */ }
       break;
     }
 
@@ -223,6 +307,7 @@ LocalLauncher — ローカル Web サーバーランチャー
   remove <id>         サーバーを削除
   list                登録済みサーバー一覧を表示
   port-check          全ポートの空き状況を確認
+  stop-web [port]     Web UI プロセスを停止（デフォルト: 7474）
   setup-autostart     Windows ログイン時に自動起動を設定 (Windows のみ)
   config-path         設定ファイルのパスを表示
   help                このヘルプを表示
