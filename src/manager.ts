@@ -28,7 +28,9 @@ function buildCmd(cfg: ServerConfig): [string, string[]] {
       const psCmd = needsRelPath ? `.\\${command}` : command;
       // OutputEncoding を UTF-8 に設定してから実行（文字化け防止）
       const utf8Setup = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$OutputEncoding=[System.Text.Encoding]::UTF8;';
-      return ['powershell', ['-ExecutionPolicy', 'Bypass', '-Command', utf8Setup + psCmd, ...args]];
+      // -NonInteractive -InputFormat None: stdin がパイプ/NUL のとき powershell.exe が
+      // "Input redirection is not supported" を出力するのを抑制する
+      return ['powershell', ['-NonInteractive', '-InputFormat', 'None', '-ExecutionPolicy', 'Bypass', '-Command', utf8Setup + psCmd, ...args]];
     }
     case 'raw': {
       const parts = command.trim().split(/\s+/);
@@ -98,8 +100,11 @@ export class ServerManager {
       env:          { ...process.env, ...config.env },
       shell:        IS_WIN,   // Windowsでは.cmdファイルを解決するためshell:true
       windowsHide:  true,
-      // stdin をパイプしない（子プロセスが stdin リダイレクト非対応でも動作するよう）
-      stdio:        ['ignore', 'pipe', 'pipe'],
+      // LocalLauncher 自身が TTY（ターミナル）から起動されている場合は stdin を継承する。
+      // 継承することで孫プロセス（start.cmd 内の powershell など）も本物の
+      // コンソール stdin を持てるため "Input redirection is not supported" を防げる。
+      // TTY でない場合（VBScript 自動起動など）は 'ignore' にフォールバック。
+      stdio:        [process.stdin.isTTY ? 'inherit' : 'ignore', 'pipe', 'pipe'],
     });
 
     this.procs.set(id, proc);

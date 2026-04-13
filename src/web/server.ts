@@ -66,7 +66,7 @@ export class WebServer {
 
   // ── REST API（将来拡張用。現在は WS で全操作） ──────────────────────────
 
-  private async handleApi(req: Request): Promise<Response> {
+  private async handleApi(_req: Request): Promise<Response> {
     return new Response('Use WebSocket', { status: 400 });
   }
 
@@ -105,7 +105,7 @@ export class WebServer {
           saveConfig(this.cfg);
           this.manager.syncServers(this.cfg.servers);
           this.broadcastState();
-        });
+        }).catch(() => {});
         break;
       }
 
@@ -159,9 +159,9 @@ export class WebServer {
       }
 
       case 'importConfig': {
-        const raw = msg.data as string;
+        const importData = msg.data as string;
         try {
-          const imported = JSON.parse(raw) as LauncherConfig;
+          const imported = JSON.parse(importData) as LauncherConfig;
           if (!Array.isArray(imported.servers)) throw new Error('servers フィールドが不正です');
           // port → ports マイグレーション
           for (const s of imported.servers) {
@@ -202,10 +202,8 @@ export class WebServer {
 
   private openExplorer(dir: string): void {
     const d = dir.replace(/\//g, '\\');
-    // exec は Windows では cmd.exe /c で実行されるため explorer.exe をそのまま渡せる
-    exec(`explorer.exe "${d}"`, (err) => {
-      if (err) console.error('[LocalLauncher] explorer error:', err.message);
-    });
+    // explorer.exe は成功時も非ゼロの終了コードを返すことがあるため、エラーは無視する
+    exec(`explorer.exe "${d}"`, () => {});
   }
 
   private openTerminal(dir: string): void {
