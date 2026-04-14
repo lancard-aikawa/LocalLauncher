@@ -72,6 +72,7 @@ function fmtStatus(status: string, conflict: boolean): string {
     stopping: `${C.yellow}◌ Stopping…${C.reset}`,
     stopped:  `${C.dim}○ Stopped${C.reset}`,
     error:    `${C.red}✗ Error${C.reset}`,
+    detached: `${C.cyan}⎋ Detached${C.reset}`,
   };
   const s = base[status] ?? status;
   return conflict && status === 'running' ? s + ` ${C.yellow}⚡port!${C.reset}` : s;

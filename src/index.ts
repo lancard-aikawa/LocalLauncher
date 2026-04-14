@@ -196,9 +196,13 @@ async function main() {
       const webCfg = loadConfig();
 
       // 指定ポートが塞がっていたら空きポートを自動で探す
-      let webPort = requestedPort;
+      let webPort: number | undefined;
       for (let p = requestedPort; p < requestedPort + 10; p++) {
         if (await checkPortAvailable(p)) { webPort = p; break; }
+      }
+      if (webPort === undefined) {
+        console.error(`✗ ポート ${requestedPort}〜${requestedPort + 9} がすべて使用中です。別のポートを --port で指定してください。`);
+        process.exit(1);
       }
       if (webPort !== requestedPort) {
         console.log(`⚠ ポート ${requestedPort} は使用中のため、${webPort} を使用します。`);

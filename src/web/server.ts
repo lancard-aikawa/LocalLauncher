@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import type { ServerManager } from '../manager';
 import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
 import { upsertServer, removeServer, saveConfig, loadConfig, getConfigDir } from '../config';
@@ -88,6 +88,14 @@ export class WebServer {
       case 'addServer':
       case 'editServer': {
         const server = msg.server as ServerConfig;
+        const VALID_RUNTIMES = ['bun', 'node', 'npm', 'python', 'python3', 'cmd', 'powershell', 'raw'];
+        if (typeof server?.id !== 'string' || !server.id ||
+            typeof server?.name !== 'string' || !server.name ||
+            typeof server?.command !== 'string' || !server.command ||
+            !VALID_RUNTIMES.includes(server?.runtime)) {
+          ws.send(JSON.stringify({ type: 'toast', message: 'サーバー設定が不正です', level: 'err' }));
+          break;
+        }
         this.cfg = upsertServer(this.cfg, server);
         saveConfig(this.cfg);
         this.manager.syncServers(this.cfg.servers);
@@ -211,36 +219,36 @@ export class WebServer {
   private openExplorer(dir: string): void {
     const d = dir.replace(/\//g, '\\');
     // explorer.exe は成功時も非ゼロの終了コードを返すことがあるため、エラーは無視する
-    exec(`explorer.exe "${d}"`, () => {});
+    execFile('explorer.exe', [d], () => {});
   }
 
   private openTerminal(dir: string): void {
     const d = dir.replace(/\//g, '\\');
-    // パス中の単引用符をエスケープ（PowerShell 用）
+    // パス中の単引用符をエスケープ（PowerShell の Set-Location コマンド内で使用）
     const dPs = d.replace(/'/g, "''");
     const term = this.cfg.settings?.preferredTerminal ?? 'powershell';
 
     switch (term) {
       case 'powershell':
-        // start "" でタイトルを空に指定して新しいウィンドウを開く
-        exec(`start "" powershell.exe -NoExit -Command "Set-Location '${dPs}'"`, (err) => {
+        // cmd.exe /c start で新しいウィンドウを開く。パスはシェルを介さず引数で渡す
+        execFile('cmd.exe', ['/c', 'start', '', 'powershell.exe', '-NoExit', '-Command', `Set-Location '${dPs}'`], (err) => {
           if (err) console.error('[LocalLauncher] powershell error:', err.message);
         });
         break;
 
       case 'cmd':
-        // /k でコマンド実行後もウィンドウを保持
-        exec(`start "" cmd.exe /k cd /d "${d}"`, (err) => {
+        // /k でコマンド実行後もウィンドウを保持。パスは別引数で渡すことでインジェクションを防ぐ
+        execFile('cmd.exe', ['/c', 'start', '', 'cmd.exe', '/k', 'cd', '/d', d], (err) => {
           if (err) console.error('[LocalLauncher] cmd error:', err.message);
         });
         break;
 
       case 'wt':
-        exec(`wt.exe -d "${d}"`, (err) => {
+        execFile('wt.exe', ['-d', d], (err) => {
           if (err) {
             // Windows Terminal が見つからない場合は PowerShell にフォールバック
             console.warn('[LocalLauncher] wt not found, falling back to PowerShell');
-            exec(`start "" powershell.exe -NoExit -Command "Set-Location '${dPs}'"`, (err2) => {
+            execFile('cmd.exe', ['/c', 'start', '', 'powershell.exe', '-NoExit', '-Command', `Set-Location '${dPs}'`], (err2) => {
               if (err2) console.error('[LocalLauncher] powershell fallback error:', err2.message);
             });
           }

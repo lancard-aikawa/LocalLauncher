@@ -44,7 +44,8 @@ export function loadConfig(): LauncherConfig {
     }
     if (!cfg.settings) cfg.settings = DEFAULTS.settings;
     return cfg;
-  } catch {
+  } catch (e) {
+    console.warn(`[LocalLauncher] config.json の読み込みに失敗しました (${p}):`, (e as Error).message);
     return structuredClone(DEFAULTS);
   }
 }

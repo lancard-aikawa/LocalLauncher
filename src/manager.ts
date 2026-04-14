@@ -8,6 +8,20 @@ const execAsync = promisify(exec);
 const IS_WIN = process.platform === 'win32';
 const MAX_LOGS = 500;
 
+/** ダブルクォートを考慮してコマンド文字列を引数配列に分割する */
+function parseArgs(s: string): string[] {
+  const parts: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (const ch of s) {
+    if (ch === '"') { inQuote = !inQuote; }
+    else if (ch === ' ' && !inQuote) { if (cur) { parts.push(cur); cur = ''; } }
+    else { cur += ch; }
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
 // ─── ランタイム別コマンド構築 ────────────────────────────────────────────────
 
 /** terminal モード用: 実行するコマンド文字列を返す */
@@ -49,7 +63,7 @@ function buildCmd(cfg: ServerConfig): [string, string[]] {
       return ['powershell', ['-NonInteractive', '-InputFormat', 'None', '-ExecutionPolicy', 'Bypass', '-Command', utf8Setup + psCmd, ...args]];
     }
     case 'raw': {
-      const parts = command.trim().split(/\s+/);
+      const parts = parseArgs(command.trim());
       return [parts[0], [...parts.slice(1), ...args]];
     }
   }
@@ -233,7 +247,7 @@ export class ServerManager {
   async stopAll(): Promise<void> {
     await Promise.all(
       [...this.states.entries()]
-        .filter(([, s]) => s.status === 'running' || s.status === 'starting')
+        .filter(([, s]) => s.status === 'running' || s.status === 'starting' || s.status === 'detached')
         .map(([id]) => this.stop(id))
     );
   }
