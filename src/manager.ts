@@ -206,16 +206,30 @@ export class ServerManager {
     // detached モード: stopCommand で実プロセスを終了
     if (state.status === 'detached') {
       this.stopDetachedWatch(id);
+      this.patch(id, { status: 'stopping' });
       this.log(id, '⏹ Stopping detached process…');
+
       if (state.config.stopCommand) {
-        try {
-          await execAsync(state.config.stopCommand, { cwd: state.config.cwd });
-        } catch (e) {
-          this.log(id, `⚠ Stop command failed: ${(e as Error).message}`);
+        // pause 等でハングする可能性があるため await せず起動し、
+        // ポート解放 or タイムアウトを停止確定の主判定とする
+        const stopDone = execAsync(state.config.stopCommand, {
+          cwd: state.config.cwd,
+          timeout: 15000,
+          env: { ...process.env, LOCAL_LAUNCHER: '1' },
+        }).catch(e => { this.log(id, `⚠ Stop command: ${(e as Error).message}`); });
+
+        const ports = state.config.ports ?? [];
+        if (ports.length > 0) {
+          // ポートが解放される or stopCommand 完了、いずれか早い方で確定
+          await Promise.race([stopDone, this.pollUntilPortsFree(ports, 30000)]);
+        } else {
+          // ポート未設定: stopCommand のタイムアウト(15s)まで待つ
+          await stopDone;
         }
       } else {
         this.log(id, '⚠ stopCommand が未設定のため状態のみリセットしました');
       }
+
       this.patch(id, { status: 'stopped', pid: undefined });
       this.log(id, '⏹ Stopped');
       return;
@@ -227,7 +241,11 @@ export class ServerManager {
     // カスタム停止コマンドがあれば実行
     if (state.config.stopCommand) {
       try {
-        await execAsync(state.config.stopCommand, { cwd: state.config.cwd });
+        await execAsync(state.config.stopCommand, {
+          cwd: state.config.cwd,
+          timeout: 15000,
+          env: { ...process.env, LOCAL_LAUNCHER: '1' },
+        });
       } catch (e) {
         this.log(id, `⚠ Stop command failed: ${(e as Error).message}`);
       }
@@ -343,6 +361,22 @@ export class ServerManager {
       }
     }, 5000);
     this.detachTimers.set(id, timer);
+  }
+
+  /** 全ポートが解放されるまで最大 maxMs ミリ秒ポーリングする */
+  private pollUntilPortsFree(ports: number[], maxMs: number): Promise<void> {
+    return new Promise(resolve => {
+      const deadline = Date.now() + maxMs;
+      const check = async () => {
+        const results = await Promise.all(ports.map(p => checkPortAvailable(p)));
+        if (results.every(Boolean) || Date.now() >= deadline) {
+          resolve();
+        } else {
+          setTimeout(check, 1000);
+        }
+      };
+      check();
+    });
   }
 
   private stopDetachedWatch(id: string): void {

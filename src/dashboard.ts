@@ -299,7 +299,7 @@ export class Dashboard {
     // ── ログパネル
     const selState = states[this.sel];
     const logTitle = selState
-      ? ` Logs: ${selState.config.name}${selState.config.port ? ` :${selState.config.port}` : ''} `
+      ? ` Logs: ${selState.config.name}${selState.config.ports?.[0] ? ` :${selState.config.ports[0]}` : ''} `
       : ' Logs ';
     lines.push(box.div(w, logTitle));
 
