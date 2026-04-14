@@ -221,7 +221,9 @@ export class ServerManager {
         const ports = state.config.ports ?? [];
         if (ports.length > 0) {
           // ポートが解放される or stopCommand 完了、いずれか早い方で確定
-          await Promise.race([stopDone, this.pollUntilPortsFree(ports, 30000)]);
+          // stopDone 勝利時はポーリングをキャンセルしてタイマーリークを防ぐ
+          const poller = this.pollUntilPortsFree(ports, 30000);
+          await Promise.race([stopDone.finally(() => poller.cancel()), poller]);
         } else {
           // ポート未設定: stopCommand のタイムアウト(15s)まで待つ
           await stopDone;
@@ -363,20 +365,30 @@ export class ServerManager {
     this.detachTimers.set(id, timer);
   }
 
-  /** 全ポートが解放されるまで最大 maxMs ミリ秒ポーリングする */
-  private pollUntilPortsFree(ports: number[], maxMs: number): Promise<void> {
-    return new Promise(resolve => {
+  /** 全ポートが解放されるまで最大 maxMs ミリ秒ポーリングする（cancel() で早期終了可） */
+  private pollUntilPortsFree(ports: number[], maxMs: number): Promise<void> & { cancel(): void } {
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    const promise = new Promise<void>(resolve => {
       const deadline = Date.now() + maxMs;
       const check = async () => {
-        const results = await Promise.all(ports.map(p => checkPortAvailable(p)));
-        if (results.every(Boolean) || Date.now() >= deadline) {
-          resolve();
-        } else {
-          setTimeout(check, 1000);
+        try {
+          const results = await Promise.all(ports.map(p => checkPortAvailable(p)));
+          if (cancelled || results.every(Boolean) || Date.now() >= deadline) {
+            resolve(); return;
+          }
+        } catch {
+          if (cancelled || Date.now() >= deadline) { resolve(); return; }
         }
+        timerId = setTimeout(check, 1000);
       };
       check();
-    });
+    }) as Promise<void> & { cancel(): void };
+    promise.cancel = () => {
+      cancelled = true;
+      if (timerId !== undefined) clearTimeout(timerId);
+    };
+    return promise;
   }
 
   private stopDetachedWatch(id: string): void {
