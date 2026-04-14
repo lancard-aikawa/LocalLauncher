@@ -86,11 +86,6 @@ async function main() {
         process.exit(1);
       }
 
-      const startupDir = join(
-        process.env.APPDATA!,
-        'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
-      );
-
       // bun.exe の実パスを解決する
       // where bun で見つかるのが .cmd シムの場合、その中から実際の exe パスを取得する
       let bunExePath: string;
@@ -128,23 +123,41 @@ async function main() {
       ].join('\r\n');
       writeFileSync(batPath, bat, 'utf-8');
 
-      // VBScript: 10秒待機してからバッチを非表示で実行
-      // （OS起動直後の環境初期化が完了するまで待つ）
+      // VBScript: バッチを非表示で実行（%APPDATA%\LocalLauncher\ に配置）
       const vbs = [
         'Set WshShell = CreateObject("WScript.Shell")',
-        'WScript.Sleep 10000',
         `WshShell.Run "cmd /c """"${batPath}""""", 0, False`,
       ].join('\r\n');
-
-      const vbsPath = join(startupDir, 'LocalLauncher.vbs');
+      const vbsPath = join(configDir, 'autostart.vbs');
       writeFileSync(vbsPath, vbs, 'utf-8');
 
-      console.log(`✓ スタートアップに登録しました:`);
-      console.log(`  ${vbsPath}`);
+      // 旧スタートアップフォルダの VBS を削除
+      const oldVbsPath = join(
+        process.env.APPDATA!,
+        'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup',
+        'LocalLauncher.vbs'
+      );
+      if (existsSync(oldVbsPath)) {
+        try { unlinkSync(oldVbsPath); } catch {}
+      }
+
+      // HKCU\Run レジストリキーに登録（スタートアップフォルダより早く実行される）
+      try {
+        execSync(
+          `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "LocalLauncher" /t REG_SZ /d "\\"wscript.exe\\" \\"${vbsPath}\\"" /f`,
+          { encoding: 'utf-8', stdio: 'pipe' }
+        );
+      } catch (e) {
+        console.error('レジストリへの登録に失敗しました:');
+        console.error((e as Error).message);
+        process.exit(1);
+      }
+
+      console.log(`✓ 自動起動を登録しました（レジストリ Run キー）`);
       console.log(`\n起動ログ: ${logPath}`);
       console.log(`手動テスト: "${batPath}" を直接実行するとログに出力されます`);
-      console.log('\n次回 Windows ログイン時に LocalLauncher が自動起動します（10秒遅延）。');
-      console.log('削除するには上記 .vbs ファイルを削除してください。\n');
+      console.log('\n次回 Windows ログイン時に LocalLauncher が自動起動します。');
+      console.log('削除するには: reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "LocalLauncher" /f\n');
       break;
     }
 
