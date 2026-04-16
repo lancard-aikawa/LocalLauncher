@@ -370,11 +370,12 @@ export class ServerManager {
   /** detached サーバーのポート監視を開始（全ポートが空きになったら stopped に遷移） */
   private startDetachedWatch(id: string): void {
     this.stopDetachedWatch(id);
+    const state0 = this.states.get(id);
+    if (!state0 || (state0.config.ports ?? []).length === 0) return; // ポート未設定は監視不可
     const timer = setInterval(async () => {
       const state = this.states.get(id);
       if (!state || state.status !== 'detached') { this.stopDetachedWatch(id); return; }
       const ports = state.config.ports ?? [];
-      if (ports.length === 0) return; // ポート未設定は監視不可
       const results = await Promise.all(ports.map(p => checkPortAvailable(p)));
       if (results.every(Boolean)) {
         this.stopDetachedWatch(id);

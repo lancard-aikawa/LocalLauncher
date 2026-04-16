@@ -237,6 +237,7 @@ async function main() {
       await new Promise<void>(resolve => {
         const shutdown = async () => {
           console.log('\nサーバーを停止中…');
+          webServer.stop();
           await manager.stopAll();
           try { unlinkSync(pidPath); } catch {}
           resolve();

@@ -86,6 +86,11 @@ export class WebServer {
     console.log(`\n✓  LocalLauncher Web UI → http://localhost:${this.port}\n`);
   }
 
+  stop(): void {
+    this.server?.stop(true);
+    this.server = null;
+  }
+
   // ── REST API（将来拡張用。現在は WS で全操作） ──────────────────────────
 
   private async handleApi(_req: Request): Promise<Response> {
