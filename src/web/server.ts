@@ -13,6 +13,7 @@ type WS = ServerWebSocket<unknown>;
 export class WebServer {
   private clients = new Set<WS>();
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
+  private server: { stop(closeActiveConnections?: boolean): void } | null = null;
 
   constructor(
     private manager: ServerManager,
@@ -28,7 +29,7 @@ export class WebServer {
   start(): void {
     const self = this;
 
-    Bun.serve({
+    this.server = Bun.serve({
       port: this.port,
 
       fetch(req, server) {
