@@ -132,7 +132,7 @@ export class WebServer {
       case 'removeServer': {
         if (!id) break;
         const state = this.manager.getState(id);
-        const stop = (state?.status === 'running' || state?.status === 'starting')
+        const stop = (state?.status === 'running' || state?.status === 'starting' || state?.status === 'detached')
           ? this.manager.stop(id)
           : Promise.resolve();
         stop.then(() => {

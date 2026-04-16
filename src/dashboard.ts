@@ -213,8 +213,8 @@ export class Dashboard {
     await this.pause();
 
     const state = this.manager.getState(id);
-    if (state?.status === 'running' || state?.status === 'starting') {
-      console.log(`\n'${id}' は実行中です。先に停止します…`);
+    if (state?.status === 'running' || state?.status === 'starting' || state?.status === 'detached') {
+      console.log(`\n'${id}' は実行中/バックグラウンドです。先に停止します…`);
       await this.manager.stop(id);
     }
 

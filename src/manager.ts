@@ -97,10 +97,15 @@ export class ServerManager {
   /** 設定変更時にサーバーリストを同期（実行中プロセスはそのまま維持） */
   syncServers(servers: ServerConfig[]): void {
     const newIds = new Set(servers.map(s => s.id));
-    for (const id of this.states.keys()) {
+    for (const [id, st] of this.states.entries()) {
       if (!newIds.has(id)) {
         this.stopDetachedWatch(id);
-        this.states.delete(id);
+        if (st.status === 'detached') {
+          // detached プロセスは stopCommand があれば実行してから state を削除
+          this.stop(id).catch(() => {}).finally(() => this.states.delete(id));
+        } else {
+          this.states.delete(id);
+        }
       }
     }
     for (const s of servers) {
@@ -347,19 +352,28 @@ export class ServerManager {
     switch (term) {
       case 'powershell':
         exec(`start "" powershell.exe -NoExit -Command "Set-Location '${cwdPs}'; ${cmdPs}"`, (err) => {
-          if (err) this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+          if (err) {
+            this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+            this.patch(config.id, { status: 'stopped' });
+          }
         });
         break;
       case 'cmd':
         exec(`start "" cmd.exe /k "cd /d "${cwd}" && ${cmd}"`, (err) => {
-          if (err) this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+          if (err) {
+            this.log(config.id, `✗ ターミナル起動失敗: ${err.message}`);
+            this.patch(config.id, { status: 'stopped' });
+          }
         });
         break;
       case 'wt':
         exec(`wt.exe -d "${cwd}" -- powershell.exe -NoExit -Command "${cmdPs}"`, (err) => {
           if (err) {
             exec(`start "" powershell.exe -NoExit -Command "Set-Location '${cwdPs}'; ${cmdPs}"`, (err2) => {
-              if (err2) this.log(config.id, `✗ ターミナル起動失敗: ${err2.message}`);
+              if (err2) {
+                this.log(config.id, `✗ ターミナル起動失敗: ${err2.message}`);
+                this.patch(config.id, { status: 'stopped' });
+              }
             });
           }
         });
