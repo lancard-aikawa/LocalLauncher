@@ -118,6 +118,10 @@ export class ServerManager {
     if (state.status === 'running' || state.status === 'starting' || state.status === 'detached') return;
 
     const { config } = state;
+    const t0 = Date.now();
+    const dbg = (msg: string) => console.log(`[LL:${config.id}] +${Date.now() - t0}ms ${msg}`);
+
+    dbg(`start() 開始`);
 
     // ── terminal モード ──────────────────────────────────────────────────────
     if (config.launchMode === 'terminal') {
@@ -130,19 +134,29 @@ export class ServerManager {
       return;
     }
 
-    // 全ポートの空き確認
-    let anyConflict = false;
-    for (const port of config.ports ?? []) {
-      const free = await checkPortAvailable(port);
-      if (!free) { anyConflict = true; this.log(id, `⚠ Port ${port} is already in use`); }
-    }
-    this.patch(id, { portConflict: anyConflict });
-
+    // 即 starting に遷移（ポートチェック中もUIに状態を反映させる）
     this.patch(id, { status: 'starting', exitCode: undefined, pid: undefined });
     this.log(id, `▶ [${config.runtime}] ${config.command}${config.args?.length ? ' ' + config.args.join(' ') : ''}`);
     if (config.cwd) this.log(id, `  cwd: ${config.cwd}`);
 
+    // 全ポートの空き確認（並列実行）
+    const ports = config.ports ?? [];
+    dbg(`ポートチェック開始 ports=[${ports.join(', ') || 'なし'}]`);
+    const portResults = await Promise.all(
+      ports.map(async port => {
+        const pt = Date.now();
+        const free = await checkPortAvailable(port);
+        console.log(`[LL:${config.id}]   :${port} → ${free ? '空き' : '使用中'} (${Date.now() - pt}ms)`);
+        if (!free) this.log(id, `⚠ Port ${port} is already in use`);
+        return free;
+      })
+    );
+    const anyConflict = portResults.some(free => !free);
+    dbg(`ポートチェック完了 conflict=${anyConflict}`);
+    this.patch(id, { portConflict: anyConflict });
+
     const [cmd, args] = buildCmd(config);
+    dbg(`spawn: ${cmd} ${args.slice(0, 3).join(' ')}${args.length > 3 ? ' …' : ''}`);
 
     const proc = spawn(cmd, args, {
       cwd:          config.cwd || undefined,
@@ -155,6 +169,7 @@ export class ServerManager {
 
     this.procs.set(id, proc);
     this.patch(id, { status: 'running', pid: proc.pid, startTime: new Date() });
+    dbg(`spawn完了 pid=${proc.pid}`);
 
     proc.stdout?.on('data', (d: Buffer) => {
       for (const line of d.toString().split('\n').map(l => l.trimEnd()).filter(Boolean))
@@ -164,8 +179,13 @@ export class ServerManager {
       for (const line of d.toString().split('\n').map(l => l.trimEnd()).filter(Boolean))
         this.log(id, `[ERR] ${line}`);
     });
+    // パイプの error イベントを握りつぶす（ハンドラ無しだと uncaughtException でプロセスが落ちる）
+    proc.stdout?.on('error', () => {});
+    proc.stderr?.on('error', () => {});
+    proc.stdin?.on('error',  () => {});
 
     proc.on('exit', code => {
+      dbg(`exit code=${code}`);
       this.procs.delete(id);
       const cur = this.states.get(id);
 

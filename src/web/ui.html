@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LocalLauncher</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
-<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<link rel="stylesheet" href="/xterm.css">
+<script src="/xterm.js"></script>
+<script src="/addon-fit.js"></script>
 <style>
 /* ── Reset & base ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -283,6 +283,64 @@ body {
 }
 .modal-backdrop.hidden { display: none; }
 
+/* ── ローディングオーバーレイ ── */
+#loading-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.75);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px;
+  color: var(--fg);
+  font-size: 14px;
+}
+#loading-overlay.hidden { display: none; }
+
+/* ローディングオーバーレイ内フェーズ切り替え */
+#loading-connect { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+#loading-servers { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+#loading-connect.hidden,
+#loading-servers.hidden,
+.loading-hint.hidden { display: none; }
+
+.loading-title {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--dim);
+}
+.loading-server-list {
+  width: 320px; max-height: 50vh; overflow-y: auto;
+  background: var(--sur);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.loading-srv-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+}
+.loading-srv-icon   { width: 14px; text-align: center; flex-shrink: 0; }
+.loading-srv-name   { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loading-srv-status { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+.loading-hint       { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.spin-icon          { display: inline-block; will-change: transform; animation: spin .8s linear infinite; }
+
+/* ポートドット: 状態未確認（確認中）はパルス */
+.port:not(.ps-open):not(.ps-down):not(.ps-busy):not(.conflict) .port-dot {
+  will-change: opacity;
+  animation: port-pulse 1.5s ease-in-out infinite;
+}
+@keyframes port-pulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.2; } }
+
+.loading-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--bdr);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  will-change: transform;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .modal-box {
   background: var(--sur);
   border: 1px solid var(--bdr);
@@ -509,6 +567,24 @@ body {
 
 </div>
 
+<!-- ── ローディングオーバーレイ ────────────────────────────────── -->
+<div id="loading-overlay">
+  <!-- Phase 1: WS接続待ち -->
+  <div id="loading-connect">
+    <div class="loading-spinner"></div>
+    <span>接続中…</span>
+  </div>
+  <!-- Phase 2: autoStartサーバー起動中 -->
+  <div id="loading-servers" class="hidden">
+    <div class="loading-title">
+      <div class="loading-spinner"></div>
+      <span id="loading-title-text">起動中…</span>
+    </div>
+    <div id="loading-server-list" class="loading-server-list"></div>
+    <div id="loading-port-hint" class="loading-hint hidden">ポート状態を確認中…</div>
+  </div>
+</div>
+
 <!-- ── Modal ───────────────────────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="modal">
   <div class="modal-box">
@@ -647,14 +723,21 @@ function connectWs() {
   ws = new WebSocket(`ws://${location.host}/ws`);
 
   ws.onopen = () => {
+    console.log(`[LL] ${_llTs()} WS connected`);
     const dot = document.getElementById('ws-dot');
     dot.classList.add('ok'); dot.classList.remove('err');
     dot.title = '接続中';
     // 接続後すぐにポート状態を取得
     setTimeout(requestPortStatus, 300);
+    // 万一 state が返らなくてもオーバーレイが残り続けないよう安全網タイムアウト
+    if (!document.getElementById('loading-overlay').classList.contains('hidden')) {
+      if (overlayTimer) clearTimeout(overlayTimer);
+      overlayTimer = setTimeout(hideLoadingOverlay, 15000);
+    }
   };
 
   ws.onclose = () => {
+    console.log(`[LL] ${_llTs()} WS disconnected — reconnecting…`);
     const dot = document.getElementById('ws-dot');
     dot.classList.remove('ok'); dot.classList.add('err');
     dot.title = '切断 — 再接続中…';
@@ -680,7 +763,92 @@ function send(obj) {
 //  Message handlers
 // ══════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════
+//  ローディングオーバーレイ制御
+// ══════════════════════════════════════════════════════════════════
+let overlayTimer = null;
+const _llTs = () => `+${performance.now().toFixed(0)}ms`;
+let overlayFirstState = true; // 初回 state 受信フラグ
+
+function hideLoadingOverlay() {
+  if (overlayTimer) { clearTimeout(overlayTimer); overlayTimer = null; }
+  console.log(`[LL] ${_llTs()} loading overlay hidden`);
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+function isFinalStatus(status) {
+  return status === 'running' || status === 'stopped' || status === 'error' || status === 'detached';
+}
+
+function statusIconHtml(status) {
+  switch (status) {
+    case 'running':  return '<span style="color:var(--green)">●</span>';
+    case 'starting': return '<span class="spin-icon">⟳</span>';
+    case 'stopping': return '<span style="color:var(--yellow)">⟳</span>';
+    case 'detached': return '<span style="color:var(--cyan)">⎋</span>';
+    case 'error':    return '<span style="color:var(--red)">✗</span>';
+    default:         return '<span style="color:var(--dim)">○</span>';
+  }
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case 'running':  return '起動済み';
+    case 'starting': return '起動中…';
+    case 'stopping': return '停止中…';
+    case 'detached': return 'Detached';
+    case 'error':    return 'エラー';
+    default:         return '停止';
+  }
+}
+
+function updateLoadingOverlay(servers) {
+  const overlay = document.getElementById('loading-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+
+  const isFirst = overlayFirstState;
+  overlayFirstState = false;
+
+  const autoStarters = servers.filter(s => s.config.autoStart);
+
+  // Phase 1 → Phase 2 へ切り替え
+  document.getElementById('loading-connect').classList.add('hidden');
+  document.getElementById('loading-servers').classList.remove('hidden');
+
+  if (autoStarters.length === 0) {
+    hideLoadingOverlay();
+    return;
+  }
+
+  // サーバーリストを描画
+  const doneCount = autoStarters.filter(s => isFinalStatus(s.status)).length;
+  const total = autoStarters.length;
+  document.getElementById('loading-title-text').textContent =
+    doneCount === total ? `起動完了 (${total}/${total})` : `起動中… (${doneCount}/${total})`;
+
+  const list = document.getElementById('loading-server-list');
+  list.innerHTML = autoStarters.map(s => `
+    <div class="loading-srv-item">
+      <span class="loading-srv-icon">${statusIconHtml(s.status)}</span>
+      <span class="loading-srv-name"  title="${esc(s.config.name)}">${esc(s.config.name)}</span>
+      <span class="loading-srv-status">${statusLabel(s.status)}</span>
+    </div>`).join('');
+
+  // 全サーバーが最終状態になったら閉じる
+  // 初回 state で既に完了済み（ページリロード等）→ 即クローズ
+  // 起動を見届けた場合→ 700ms 待って結果を見せてから閉じる
+  if (doneCount === total) {
+    const delay = isFirst ? 0 : 700;
+    if (overlayTimer) clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(hideLoadingOverlay, delay);
+  }
+}
+
 function onStateMsg(servers, settings) {
+  const summary = servers.map(s => `${s.config.id}:${s.status}`).join(' ');
+  console.log(`[LL] ${_llTs()} state received — ${servers.length} servers [${summary}]`);
+  updateLoadingOverlay(servers);
+
   state.servers = servers;
   if (settings?.preferredTerminal) {
     document.getElementById('terminal-sel').value = settings.preferredTerminal;
@@ -698,7 +866,7 @@ function onStateMsg(servers, settings) {
 
   renderSidebar();
   renderLogHeader();
-  if (state.selId) renderLogs();
+  if (state.selId) switchTerminal(state.selId);
 }
 
 function onLogMsg(id, line) {
@@ -782,6 +950,7 @@ function makeCard(s) {
       <button class="btn btn-red"   data-action="stop"         data-id="${cfg.id}" ${stopped  ? 'disabled' : ''}>■ 停止</button>
       <button class="btn"           data-action="restart"      data-id="${cfg.id}" ${canRestart ? '' : 'disabled'} title="再起動">↻</button>
       <button class="btn"           data-action="openExplorer" data-id="${cfg.id}" title="エクスプローラーで開く">📁</button>
+      <button class="btn"           data-action="openVSCode"   data-id="${cfg.id}" title="VSCodeで開く">&#x1F5B9;</button>
       <button class="btn"           data-action="openTerminal" data-id="${cfg.id}" title="ターミナルで開く">&gt;_</button>
     </div>`;
 
@@ -1067,6 +1236,8 @@ function onDetectedPorts(ports) {
 
 // ── ポートステータス更新 ──────────────────────────────────────────────────────
 function onPortStatus(status) {
+  const listening = Object.entries(status ?? {}).filter(([,v]) => v).map(([k]) => `:${k}`);
+  console.log(`[LL] ${_llTs()} portStatus received — listening: [${listening.join(', ') || 'なし'}]`);
   state.portStatus = status ?? {};
   // カードのポート表示だけ差分更新（サイドバー全再描画を避ける）
   for (const s of state.servers) {

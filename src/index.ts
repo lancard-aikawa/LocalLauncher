@@ -226,7 +226,9 @@ async function main() {
 
       const autoIds = webCfg.servers.filter(s => s.autoStart).map(s => s.id);
       if (autoIds.length) {
+        console.log(`[LocalLauncher] autoStart: [${autoIds.join(', ')}] を300ms後に起動します`);
         setTimeout(() => {
+          console.log(`[LocalLauncher] autoStart: 起動開始`);
           for (const id of autoIds) manager.start(id).catch(() => {});
         }, 300);
       }
@@ -370,5 +372,9 @@ LocalLauncher — ローカル Web サーバーランチャー
   q     終了 (実行中サーバーをすべて停止)
 `);
 }
+
+// ストリームのエラーイベントなど、握り損ねた例外でプロセスが落ちないようにする
+process.on('uncaughtException',    err    => { console.error('[LocalLauncher] uncaughtException:',    err.message); });
+process.on('unhandledRejection',   reason => { console.error('[LocalLauncher] unhandledRejection:',   reason); });
 
 main().catch(err => { console.error('Fatal:', err); process.exit(1); });

@@ -52,6 +52,26 @@ export class WebServer {
           );
         }
 
+        // xterm.js をローカルから配信（CDN遅延を排除）
+        if (pathname === '/xterm.js') {
+          return new Response(
+            Bun.file(new URL('../../node_modules/xterm/lib/xterm.js', import.meta.url)),
+            { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } },
+          );
+        }
+        if (pathname === '/xterm.css') {
+          return new Response(
+            Bun.file(new URL('../../node_modules/xterm/css/xterm.css', import.meta.url)),
+            { headers: { 'Content-Type': 'text/css; charset=utf-8' } },
+          );
+        }
+        if (pathname === '/addon-fit.js') {
+          return new Response(
+            Bun.file(new URL('../../node_modules/@xterm/addon-fit/lib/addon-fit.js', import.meta.url)),
+            { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } },
+          );
+        }
+
         return new Response('Not Found', { status: 404 });
       },
 
@@ -121,6 +141,12 @@ export class WebServer {
       case 'openExplorer': {
         const dir = this.resolveDir(id);
         this.openExplorer(dir);
+        break;
+      }
+
+      case 'openVSCode': {
+        const dir = this.resolveDir(id);
+        this.openVSCode(dir);
         break;
       }
 
@@ -214,6 +240,12 @@ export class WebServer {
   private resolveDir(id: string | undefined): string {
     const cwd = id ? this.manager.getState(id)?.config.cwd : undefined;
     return cwd || process.cwd();
+  }
+
+  private openVSCode(dir: string): void {
+    execFile('cmd.exe', ['/c', 'code', dir], (err) => {
+      if (err) console.error('[LocalLauncher] vscode error:', err.message);
+    });
   }
 
   private openExplorer(dir: string): void {

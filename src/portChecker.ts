@@ -1,12 +1,13 @@
 import { createServer } from 'net';
 import type { ServerConfig } from './types';
 
-/** ポートが使用可能（空いている）か確認 */
-export function checkPortAvailable(port: number, host = '127.0.0.1'): Promise<boolean> {
+/** ポートが使用可能（空いている）か確認。タイムアウト時は使用中とみなす */
+export function checkPortAvailable(port: number, host = '127.0.0.1', timeoutMs = 2000): Promise<boolean> {
   return new Promise(resolve => {
     const srv = createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => srv.close(() => resolve(true)));
+    const timer = setTimeout(() => { try { srv.close(); } catch {} resolve(false); }, timeoutMs);
+    srv.once('error', () => { clearTimeout(timer); resolve(false); });
+    srv.once('listening', () => { clearTimeout(timer); srv.close(() => resolve(true)); });
     srv.listen(port, host);
   });
 }
