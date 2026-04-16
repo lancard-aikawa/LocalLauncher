@@ -100,6 +100,37 @@ body {
   text-align: center;
   line-height: 1.8;
 }
+.sidebar-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--bdr);
+  flex-shrink: 0;
+}
+.sidebar-ctrl select {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--bdr);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sidebar-ctrl select:focus { outline: none; border-color: var(--accent); }
+.btn-icon {
+  background: none;
+  border: 1px solid var(--bdr);
+  color: var(--dim);
+  cursor: pointer;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.btn-icon:hover:not(:disabled) { background: var(--sur2); color: var(--text); border-color: var(--dim); }
+.btn-icon:disabled { opacity: 0.35; cursor: default; }
 
 /* ── Server card ──────────────────────────────────────────────────── */
 .card {
@@ -551,7 +582,18 @@ body {
 
   <!-- Server sidebar -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-empty">サーバーがありません。<br>「＋ 追加」で登録してください。</div>
+    <div class="sidebar-ctrl">
+      <select id="sort-sel" title="並び順">
+        <option value="reg">登録順</option>
+        <option value="name">名前順</option>
+        <option value="status">状態順</option>
+      </select>
+      <button type="button" class="btn-icon" id="btn-move-up"   title="上へ移動" disabled>↑</button>
+      <button type="button" class="btn-icon" id="btn-move-down"  title="下へ移動" disabled>↓</button>
+    </div>
+    <div id="sidebar-list">
+      <div class="sidebar-empty">サーバーがありません。<br>「＋ 追加」で登録してください。</div>
+    </div>
   </aside>
 
   <!-- Log panel -->
@@ -882,14 +924,34 @@ function onLogMsg(id, line) {
 //  Sidebar rendering
 // ══════════════════════════════════════════════════════════════════
 
+const STATUS_ORDER = { running: 0, detached: 1, starting: 2, stopping: 3, error: 4, stopped: 5 };
+
+function getSortedServers() {
+  const mode = document.getElementById('sort-sel')?.value ?? 'reg';
+  if (mode === 'name')   return [...state.servers].sort((a, b) => a.config.name.localeCompare(b.config.name, 'ja'));
+  if (mode === 'status') return [...state.servers].sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
+  return [...state.servers]; // 'reg'
+}
+
+function updateMoveButtons() {
+  const mode = document.getElementById('sort-sel')?.value ?? 'reg';
+  const inReg = mode === 'reg';
+  const idx = state.servers.findIndex(s => s.config.id === state.selId);
+  document.getElementById('btn-move-up').disabled   = !inReg || idx <= 0;
+  document.getElementById('btn-move-down').disabled = !inReg || idx < 0 || idx >= state.servers.length - 1;
+}
+
 function renderSidebar() {
-  const sb = document.getElementById('sidebar');
-  if (state.servers.length === 0) {
+  const sb = document.getElementById('sidebar-list');
+  const sorted = getSortedServers();
+  if (sorted.length === 0) {
     sb.innerHTML = '<div class="sidebar-empty">サーバーがありません。<br>「＋ 追加」で登録してください。</div>';
+    updateMoveButtons();
     return;
   }
   sb.innerHTML = '';
-  for (const s of state.servers) sb.appendChild(makeCard(s));
+  for (const s of sorted) sb.appendChild(makeCard(s));
+  updateMoveButtons();
 }
 
 function makeCard(s) {
@@ -1145,6 +1207,31 @@ document.getElementById('btn-delete').addEventListener('click', () => {
   send({ type: 'removeServer', id });
   if (state.selId === id) state.selId = null;
   closeModal();
+});
+
+// ─── 並び替えコントロール ──────────────────────────────────────────────────────
+
+document.getElementById('sort-sel').value = localStorage.getItem('ll-sort') ?? 'reg';
+
+document.getElementById('sort-sel').addEventListener('change', e => {
+  localStorage.setItem('ll-sort', e.target.value);
+  renderSidebar();
+});
+
+document.getElementById('btn-move-up').addEventListener('click', () => {
+  const idx = state.servers.findIndex(s => s.config.id === state.selId);
+  if (idx <= 0) return;
+  const ids = state.servers.map(s => s.config.id);
+  [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
+  send({ type: 'reorderServers', ids });
+});
+
+document.getElementById('btn-move-down').addEventListener('click', () => {
+  const idx = state.servers.findIndex(s => s.config.id === state.selId);
+  if (idx < 0 || idx >= state.servers.length - 1) return;
+  const ids = state.servers.map(s => s.config.id);
+  [ids[idx], ids[idx + 1]] = [ids[idx + 1], ids[idx]];
+  send({ type: 'reorderServers', ids });
 });
 
 // イベント連結

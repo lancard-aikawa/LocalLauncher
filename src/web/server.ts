@@ -178,6 +178,22 @@ export class WebServer {
         break;
       }
 
+      case 'reorderServers': {
+        const ids = msg.ids as string[];
+        if (!Array.isArray(ids)) break;
+        const ordered = ids
+          .map(id => this.cfg.servers.find(s => s.id === id))
+          .filter((s): s is ServerConfig => s !== undefined);
+        // ids に含まれなかったサーバーを末尾に追加（安全網）
+        const inList = new Set(ids);
+        for (const s of this.cfg.servers) if (!inList.has(s.id)) ordered.push(s);
+        this.cfg = { ...this.cfg, servers: ordered };
+        saveConfig(this.cfg);
+        this.manager.syncServers(this.cfg.servers);
+        this.broadcastState();
+        break;
+      }
+
       case 'reloadConfig': {
         try {
           this.cfg = loadConfig();

@@ -236,7 +236,7 @@ export class Dashboard {
   private quit(): void {
     this.shutdown();
     const running = this.manager.getAllStates().filter(
-      s => s.status === 'running' || s.status === 'starting'
+      s => s.status === 'running' || s.status === 'starting' || s.status === 'detached'
     );
     if (running.length === 0) { console.log('Bye!'); process.exit(0); }
     console.log('サーバーを停止中…');

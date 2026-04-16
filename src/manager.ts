@@ -80,19 +80,25 @@ export class ServerManager {
   settings?: LauncherSettings;
 
   private states       = new Map<string, ServerState>();
+  private order        = new Array<string>();
   private procs        = new Map<string, ReturnType<typeof spawn>>();
   private detachTimers = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(servers: ServerConfig[], onUpdate: () => void) {
     this.onUpdate = onUpdate;
     for (const s of servers) this.initState(s);
+    this.order = servers.map(s => s.id);
   }
 
   // ── 状態アクセス ────────────────────────────────────────────────────────
 
   getState(id: string): ServerState | undefined { return this.states.get(id); }
 
-  getAllStates(): ServerState[] { return [...this.states.values()]; }
+  getAllStates(): ServerState[] {
+    return this.order
+      .map(id => this.states.get(id))
+      .filter((s): s is ServerState => s !== undefined);
+  }
 
   /** 設定変更時にサーバーリストを同期（実行中プロセスはそのまま維持） */
   syncServers(servers: ServerConfig[]): void {
@@ -113,6 +119,7 @@ export class ServerManager {
       if (existing) existing.config = s;
       else this.initState(s);
     }
+    this.order = servers.map(s => s.id);
   }
 
   // ── ライフサイクル ──────────────────────────────────────────────────────
