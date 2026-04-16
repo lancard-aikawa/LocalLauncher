@@ -1,6 +1,6 @@
 # LocalLauncher — CLAUDE.md
 
-ローカル開発用Webサーバーをまとめて管理するランチャーツール。  
+ローカル開発用Webサーバーをまとめて管理するランチャーツール。
 Bun製。TUIダッシュボードとブラウザWeb UIの両方に対応。
 
 ---
@@ -38,7 +38,7 @@ src/
 - `onUpdate: () => void` コールバックで外部（Dashboard/WebServer）に状態変化を通知
 - `onLog: (id, line) => void` コールバックでリアルタイムログ配信
 - `spawn` は `shell: true`（Windows）/ `stdio: ['pipe','pipe','pipe']`
-- **stdout/stderr/stdin には必ず `.on('error', () => {})` を付ける**  
+- **stdout/stderr/stdin には必ず `.on('error', () => {})` を付ける**
   → 付けないと、プロセス終了時のパイプエラーが uncaughtException になりプロセスが落ちる
 
 ### 起動モード（launchMode）
@@ -83,7 +83,7 @@ src/
 
 - 全CSS/JSをHTMLにインライン記述（単一ファイル）
 - カラーパレット: `--bg`, `--sur`, `--sur2`, `--sur3`, `--bdr`, `--text`, `--dim`, `--green`, `--red`, `--yellow`, `--blue`, `--purple`, `--cyan`, `--accent`
-- **`.hidden` クラスはコンポーネントごとに個別定義**（グローバルな `.hidden { display: none }` はない）  
+- **`.hidden` クラスはコンポーネントごとに個別定義**（グローバルな `.hidden { display: none }` はない）
   例: `#loading-overlay.hidden { display: none; }`
 - ローディングオーバーレイ: WS接続前「接続中…」→ state受信後「autoStartサーバー一覧＋状態」→ 全サーバー最終状態で自動クローズ（15秒タイムアウトあり）
 - ポートドット: `portStatus` 未受信中はパルスアニメーション表示
@@ -112,3 +112,5 @@ bun run build                   # local-launcher.exe を生成
 - Windows前提の機能: `explorer.exe`, `taskkill`, `wscript.exe`, レジストリ Run キー登録
 - `code`コマンド（VSCodeで開く）はVSCodeのPATH登録が必要（PATH.md参照）
 - `shell: true` で spawn するため、コマンドインジェクションに注意。ユーザー入力をコマンドに直接埋め込まない
+- `detached` は例外扱いしない。
+- 停止・削除・再読込・終了は同じライフサイクル経路を通し、表示順と実行順は分けて管理する
