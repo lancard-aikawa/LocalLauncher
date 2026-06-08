@@ -76,7 +76,7 @@ src/
 
 - 全操作は WebSocket の JSON メッセージで行う（REST APIは未使用）
 - サーバー → クライアント: `state`（全サーバー状態）, `log`, `portStatus`, `toast`, `configExport`, `detectedPorts`
-- クライアント → サーバー: `start`, `stop`, `restart`, `addServer`, `editServer`, `removeServer`, `checkPortStatus`, `reloadConfig`, `openExplorer`, `openVSCode`, `openTerminal`, `openConfigFolder`, `exportConfig`, `importConfig`, `stdinInput`, `detectPorts`, `updateSettings`, `clearLogs`
+- クライアント → サーバー: `start`, `stop`, `restart`, `addServer`, `editServer`, `removeServer`, `reorderServers`, `checkPortStatus`, `reloadConfig`, `openExplorer`, `openVSCode`, `openTerminal`, `openConfigFolder`, `exportConfig`, `importConfig`, `stdinInput`, `detectPorts`, `updateSettings`, `clearLogs`
 - 状態配信は `scheduleState()` で50msデバウンス（onUpdateが頻繁に呼ばれるため）
 
 ## ブラウザUI（src/web/ui.html）
