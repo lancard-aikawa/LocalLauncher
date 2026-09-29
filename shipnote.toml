@@ -23,7 +23,7 @@ features = [
 platforms = "Windows 10 / 11 (64 bit)。Bun は不要"
 
 # リポジトリ内の画像のパス。LP に並ぶ
-screenshots = []
+screenshots = ["docs/images/web-ui.png", "docs/images/add-server.png"]
 
 # false にするとトップの一覧から外す (LP とリリース記録は作る)
 listed = true
