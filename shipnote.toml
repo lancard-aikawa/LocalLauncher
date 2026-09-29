@@ -1,0 +1,32 @@
+# Shipnote の設定。Pages の LP (/projects/<slug>/) に出す内容。
+# 書き換えたら `shipnote sync` で反映する。
+
+name = "LocalLauncher"
+github = "lancard-aikawa/LocalLauncher"
+# slug = "locallauncher"   # LP の URL。省略すると name から作る
+
+# 一行の紹介 (トップの一覧と LP の見出し下に出る)
+tagline = "ローカル開発用の Web サーバーをまとめて起動・停止できるランチャー"
+
+# 二〜四文の説明
+description = "複数のローカル開発サーバーを 1 か所に登録して、起動・停止・再起動をまとめて扱えるツールです。TUI ダッシュボードとブラウザの Web UI の両方から操作でき、ログとステータスはリアルタイムに更新されます。bun / node / npm / python / cmd / PowerShell など複数のランタイムに対応し、ポートの状態や競合も画面から確認できます。設定は config.json に保存されるので、次回もそのまま使えます。"
+
+features = [
+  "bun / node / npm / python / python3 / cmd / PowerShell / raw の複数ランタイムに対応",
+  "サーバーごとに複数ポートを登録し、LISTENING・競合・未応答を色で区別して表示",
+  "firebase.json / .env / package.json などからポートを自動検出し、起動時に競合を警告",
+  "xterm.js のブラウザ内ターミナルでログを表示し、stdin の入力も転送できる",
+  "ブラウザ内・Detached・外部ターミナルの 3 種類の起動方式と、カスタム停止コマンドに対応",
+]
+
+# 動く環境 (例: "Windows 10 / 11")
+platforms = "Windows 10 / 11 (64 bit)。Bun は不要"
+
+# リポジトリ内の画像のパス。LP に並ぶ
+screenshots = []
+
+# false にするとトップの一覧から外す (LP とリリース記録は作る)
+listed = true
+
+# false にすると一覧と LP だけ載せ、リリース記録 (/posts/) は作らない (作ってあったものは消す)
+posts = true
