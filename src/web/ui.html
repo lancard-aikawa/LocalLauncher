@@ -52,7 +52,8 @@ body {
   gap: 12px;
 }
 
-.logo { font-size: 15px; font-weight: bold; letter-spacing: .04em; color: var(--purple); }
+.logo { font-size: 15px; font-weight: bold; letter-spacing: .04em; color: var(--purple); display: flex; align-items: center; gap: 8px; }
+.logo img { width: 24px; height: 24px; display: block; }
 .logo span { color: var(--text); }
 
 .header-right { display: flex; align-items: center; gap: 10px; }
@@ -540,7 +541,7 @@ body {
 
 <!-- ── Header ──────────────────────────────────────────────────── -->
 <header class="header">
-  <div class="logo">🚀 <span>LocalLauncher</span></div>
+  <div class="logo"><img src="/favicon.svg" alt=""><span>LocalLauncher</span></div>
   <div class="header-right">
     <div class="terminal-sel-wrap">
       <span>ターミナル:</span>
