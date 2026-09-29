@@ -24,17 +24,35 @@ TUI ダッシュボード / ブラウザ Web UI の両方に対応していま�
 
 ---
 
-## 必要環境
+## ダウンロード（exe 版）
+
+[Releases](https://github.com/lancard-aikawa/LocalLauncher/releases) の `LocalLauncher-<版>-win-x64.zip` を展開し、
+`local-launcher.exe` を使います（Windows 10 / 11、Bun は不要）。
+
+```bash
+local-launcher.exe web --open     # Web UI を開く (http://localhost:7474)
+local-launcher.exe                # TUI ダッシュボード
+local-launcher.exe setup-autostart  # Windows ログイン時に Web UI を自動起動
+```
+
+- 以下の `bun run src/index.ts` は、exe 版では `local-launcher.exe` に読み替えてください
+- 設定は `%APPDATA%\LocalLauncher\config.json` に保存されます（exe の場所には書き込みません）
+- `setup-autostart` は、実行した exe の場所を登録します。exe を移動したら再実行してください
+- 署名の無い exe なので、初回に SmartScreen の警告が出ることがあります（「詳細情報」→「実行」）
+
+## ソースから動かす
+
+### 必要環境
 
 - [Bun](https://bun.sh/) v1.0 以上
 - Windows 10 / 11（macOS・Linux でも動作しますが主に Windows 向け）
 
 > `bun` / `code` コマンドが認識されない場合は [PATH.md](PATH.md) を参照してください。
 
-## インストール
+### インストール
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/lancard-aikawa/LocalLauncher.git
 cd LocalLauncher
 bun install
 ```
@@ -124,3 +142,7 @@ bun run build
 | [MANUAL.md](MANUAL.md) | プロセスタイプ別の使い分け・各モードの詳細・Web UI 機能・サーバー設定例・設定ファイル（config.json）・ポート自動検出・自動起動・ファイル構成 |
 | [REGISTRATION.md](REGISTRATION.md) | サーバー追加・編集時の各設定項目（ランタイム・コマンド・起動モード） |
 | [PATH.md](PATH.md) | `bun` / `code` コマンドの PATH 設定 |
+
+## ライセンス
+
+MIT

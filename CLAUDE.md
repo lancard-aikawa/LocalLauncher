@@ -109,6 +109,13 @@ bun run build                   # local-launcher.exe を生成
 ## 注意事項
 
 - `bun build --compile` ターゲットは Bun のみ（Node.exe では動かない）
+- **exe の中では `import.meta.url` / `import.meta.dir` が仮想パス (`B:\~BUN\root`) になる。**
+  実行時に読むファイル (ui.html、node_modules の xterm) は `import x from '...' with { type: 'file' }` で
+  読んで exe に同梱する。相対パスで `Bun.file` すると exe だけ 500 になる (1.0.0 の前に踏んだ)。
+  exe 自身を起動し直すときは `process.execPath` を使う (`isCompiled` / `SELF` を参照)
+- exe の確認は、`bun run build` のあと `APPDATA` を一時フォルダに向け、空いているポートで
+  `local-launcher.exe web --port=<空き>` を起動して `/`・`/xterm.js`・`/xterm.css`・`/addon-fit.js` が 200 か見る。
+  普段使いの Web UI (7474) は `web` の二重起動停止で落とされるので、`APPDATA` を分けずに試さない
 - Windows前提の機能: `explorer.exe`, `taskkill`, `wscript.exe`, レジストリ Run キー登録
 - `code`コマンド（VSCodeで開く）はVSCodeのPATH登録が必要（PATH.md参照）
 - `shell: true` で spawn するため、コマンドインジェクションに注意。ユーザー入力をコマンドに直接埋め込まない

@@ -5,9 +5,13 @@ import { promptServerForm } from './prompts';
 import { checkPortAvailable, findDuplicatePorts } from './portChecker';
 import { execSync } from 'child_process';
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 
 const [,, cmd, ...rest] = process.argv;
+
+// 単体 exe (bun build --compile) で動いているか。import.meta.dir は exe 内の仮想パス (B:\~BUN\root) になる
+const isCompiled = !/^bun(\.exe)?$/i.test(basename(process.execPath));
+const SELF = isCompiled ? basename(process.execPath) : 'bun run src/index.ts';
 
 async function main() {
   const cfg = loadConfig();
@@ -51,7 +55,7 @@ async function main() {
     // ─────────────────────────────────────────────── remove ────────────────
     case 'remove': {
       const id = rest[0];
-      if (!id) { console.error('使用法: bun run src/index.ts remove <id>'); process.exit(1); }
+      if (!id) { console.error(`使用法: ${SELF} remove <id>`); process.exit(1); }
       if (!cfg.servers.find(s => s.id === id)) {
         console.error(`'${id}' が見つかりません。`); process.exit(1);
       }
@@ -86,30 +90,38 @@ async function main() {
         process.exit(1);
       }
 
-      // bun.exe の実パスを解決する
-      // where bun で見つかるのが .cmd シムの場合、その中から実際の exe パスを取得する
-      let bunExePath: string;
-      try {
-        const whereBun = execSync('where bun', { encoding: 'utf-8' }).trim().split(/\r?\n/)[0].trim();
-        if (whereBun.toLowerCase().endsWith('.exe')) {
-          bunExePath = whereBun;
-        } else {
-          // .cmd / シムスクリプトの場合: 同ディレクトリの node_modules\bun\bin\bun.exe を探す
-          const dir = join(whereBun, '..');
-          const candidate = join(dir, 'node_modules', 'bun', 'bin', 'bun.exe');
-          if (existsSync(candidate)) {
-            bunExePath = candidate;
+      // 単体 exe のときは exe 自身を起動する (exe の中の index.ts は実在しない)
+      let launchCmd: string;
+      if (isCompiled) {
+        launchCmd = `"${process.execPath}" web`;
+      } else {
+        // bun.exe の実パスを解決する
+        // where bun で見つかるのが .cmd シムの場合、その中から実際の exe パスを取得する
+        let bunExePath: string;
+        try {
+          const whereBun = execSync('where bun', { encoding: 'utf-8' }).trim().split(/\r?\n/)[0].trim();
+          if (whereBun.toLowerCase().endsWith('.exe')) {
+            bunExePath = whereBun;
           } else {
-            // フォールバック: bun.cmd を呼ぶ
-            bunExePath = whereBun.replace(/\.[^.]+$/, '.cmd');
+            // .cmd / シムスクリプトの場合: 同ディレクトリの node_modules\bun\bin\bun.exe を探す
+            const dir = join(whereBun, '..');
+            const candidate = join(dir, 'node_modules', 'bun', 'bin', 'bun.exe');
+            if (existsSync(candidate)) {
+              bunExePath = candidate;
+            } else {
+              // フォールバック: bun.cmd を呼ぶ
+              bunExePath = whereBun.replace(/\.[^.]+$/, '.cmd');
+            }
           }
+        } catch {
+          console.error('bun が PATH に見つかりません。先に bun をインストールしてください。');
+          process.exit(1);
         }
-      } catch {
-        console.error('bun が PATH に見つかりません。先に bun をインストールしてください。');
-        process.exit(1);
+
+        const scriptPath = join(import.meta.dir, 'index.ts');
+        launchCmd = `"${bunExePath}" run "${scriptPath}" web`;
       }
 
-      const scriptPath = join(import.meta.dir, 'index.ts');
       const configDir = join(process.env.APPDATA!, 'LocalLauncher');
       const batPath   = join(configDir, 'autostart.bat');
       const logPath   = join(configDir, 'autostart.log');
@@ -118,7 +130,7 @@ async function main() {
       const bat = [
         '@echo off',
         `echo [%DATE% %TIME%] LocalLauncher autostart starting... >> "${logPath}"`,
-        `"${bunExePath}" run "${scriptPath}" web >> "${logPath}" 2>&1`,
+        `${launchCmd} >> "${logPath}" 2>&1`,
         `echo [%DATE% %TIME%] LocalLauncher process exited with code %ERRORLEVEL% >> "${logPath}"`,
       ].join('\r\n');
       writeFileSync(batPath, bat, 'utf-8');
@@ -346,7 +358,7 @@ function printHelp(): void {
 LocalLauncher — ローカル Web サーバーランチャー
 
 使用法:
-  bun run src/index.ts [コマンド]
+  ${SELF} [コマンド]
 
 コマンド:
   (なし)              TUI ダッシュボードを起動

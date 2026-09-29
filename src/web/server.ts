@@ -5,6 +5,12 @@ import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
 import { upsertServer, removeServer, saveConfig, loadConfig, getConfigDir } from '../config';
 import { detectPorts } from '../portDetector';
 import { checkPortAvailable } from '../portChecker';
+// type: 'file' で読むと bun build --compile の exe に同梱される (bun run では実ファイルのパス)。
+// import.meta.url からの相対パスで読むと、exe では B:\~BUN\root を探して 500 になる
+import uiHtmlPath from './ui.html' with { type: 'file' };
+import xtermJsPath from 'xterm/lib/xterm.js' with { type: 'file' };
+import xtermCssPath from 'xterm/css/xterm.css' with { type: 'file' };
+import addonFitPath from '@xterm/addon-fit/lib/addon-fit.js' with { type: 'file' };
 
 type WS = ServerWebSocket<unknown>;
 
@@ -48,7 +54,7 @@ export class WebServer {
         // HTML UI を配信
         if (pathname === '/' || pathname === '/index.html') {
           return new Response(
-            Bun.file(new URL('./ui.html', import.meta.url)),
+            Bun.file(uiHtmlPath),
             { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
           );
         }
@@ -56,19 +62,19 @@ export class WebServer {
         // xterm.js をローカルから配信（CDN遅延を排除）
         if (pathname === '/xterm.js') {
           return new Response(
-            Bun.file(new URL('../../node_modules/xterm/lib/xterm.js', import.meta.url)),
+            Bun.file(xtermJsPath),
             { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } },
           );
         }
         if (pathname === '/xterm.css') {
           return new Response(
-            Bun.file(new URL('../../node_modules/xterm/css/xterm.css', import.meta.url)),
+            Bun.file(xtermCssPath),
             { headers: { 'Content-Type': 'text/css; charset=utf-8' } },
           );
         }
         if (pathname === '/addon-fit.js') {
           return new Response(
-            Bun.file(new URL('../../node_modules/@xterm/addon-fit/lib/addon-fit.js', import.meta.url)),
+            Bun.file(addonFitPath),
             { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } },
           );
         }

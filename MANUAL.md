@@ -164,7 +164,8 @@ xterm.js による本格的なターミナルをブラウザ内に内蔵して�
 ログイン時に LocalLauncher を自動起動するには:
 
 ```bash
-bun run src/index.ts setup-autostart
+bun run src/index.ts setup-autostart   # ソースから動かしている場合 (bun で index.ts を起動する)
+local-launcher.exe setup-autostart     # exe 版 (その exe の場所を登録する。移動したら再実行)
 ```
 
 以下のファイルが作成され、レジストリ `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` に登録されます。
