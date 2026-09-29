@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 32px 以下用 (icon.svg の簡略版)。文字の線と 3 行目の枠を省き、起動は大きな三角だけにする。
+       縁取りは暗いタスクバーで輪郭が消えないようにするため -->
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="#2a2a4a" stroke="#565690"/>
+  <rect x="4" y="4" width="24" height="7" rx="2" fill="#3c3c68"/>
+  <rect x="4" y="13" width="24" height="7" rx="2" fill="#3c3c68"/>
+  <circle cx="8.5" cy="7.5" r="2.2" fill="#4ade80"/>
+  <circle cx="8.5" cy="16.5" r="2.2" fill="#4ade80"/>
+  <polygon points="12,21.5 21,25 12,28.5" fill="#a78bfa" stroke="#a78bfa" stroke-linejoin="round"/>
+</svg>

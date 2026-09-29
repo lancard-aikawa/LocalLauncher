@@ -54,6 +54,20 @@ src/
 - `checkPortAvailable(port, host, timeoutMs=2000)` — タイムアウトあり
 - Windows の TCP ソケット状態によって `srv.listen` がハングすることがある → タイムアウト必須
 - `start()` 内のポートチェックは `Promise.all` で並列実行すること（直列だと遅延が掛け算になる）
+- **空き確認の listen ソケットが開いている間に子プロセスを起動しない。** Windows では子に引き継がれ、
+  親が閉じても子が生きている間ポートが塞がる (autoStart の同時起動で、後のサーバーが EADDRINUSE で落ちた。1.0.1 で修正)。
+  生き続ける子プロセス (サーバー・停止コマンド・ターミナル・VS Code・エクスプローラー・ブラウザ) を起動する直前に
+  `await portChecksIdle()` を置き、そのあと await を挟まずに spawn / exec する。新しく子プロセスを起動する箇所を足すときも同じ
+- 確かめ方: `uv run demo/shoot.py` (自動起動 3 本) の `launcher.log` に `exit code=1` が無いこと。
+  塞がったときは `Get-NetTCPConnection -LocalPort <port>` の持ち主が LocalLauncher 自身の PID に見える
+  (ソケットを作ったプロセスの PID が出るため。実際に持っているのは子)
+
+### デモ環境（demo/）
+
+- `uv run demo/shoot.py` で、架空の sakura-shop のサーバー 5 本を一時フォルダの設定で立ち上げ、
+  Edge で Web UI を撮って `docs/images/` に書く。普段使いの設定と 7474 には触れない (APPDATA を差し替え、UI は 27474)
+- ダミーは `demo/fake-server.mjs` (node / bun どちらでも動く)。ポートは 2 万番台にして他のプロジェクトと重ねない
+- 起動行に出るダミーのパスは、撮影前に「ログ消去」で消す。そのためダミーは起動メッセージを 3 秒遅らせている
 
 ### 設定ファイル
 
@@ -103,8 +117,13 @@ process.on('unhandledRejection', reason => { console.error(...) });
 bun run src/index.ts            # TUIダッシュボード
 bun run src/index.ts web        # Web UI（http://localhost:7474）
 bun run src/index.ts web --open # 起動後ブラウザを自動オープン
-bun run build                   # local-launcher.exe を生成
+bun run build                   # local-launcher.exe を生成 (アイコン・版情報付き)
+bun run icon                    # assets/icon.svg と icon-small.svg から assets/icon.ico を作り直す (uv が必要)
 ```
+
+- アイコンの元は `assets/icon.svg` (48px 以上) と `assets/icon-small.svg` (32px 以下の簡略版)。
+  SVG を直したら `bun run icon` で ICO を作り直してコミットする。Web UI の favicon は icon.svg をそのまま配信する
+- 版を上げるときは `package.json` の `version` と、`build` の `--windows-version` の両方を直す
 
 ## 注意事項
 

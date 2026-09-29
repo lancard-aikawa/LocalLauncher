@@ -4,13 +4,14 @@ import type { ServerManager } from '../manager';
 import type { LauncherConfig, LauncherSettings, ServerConfig } from '../types';
 import { upsertServer, removeServer, saveConfig, loadConfig, getConfigDir } from '../config';
 import { detectPorts } from '../portDetector';
-import { checkPortAvailable } from '../portChecker';
+import { checkPortAvailable, portChecksIdle } from '../portChecker';
 // type: 'file' で読むと bun build --compile の exe に同梱される (bun run では実ファイルのパス)。
 // import.meta.url からの相対パスで読むと、exe では B:\~BUN\root を探して 500 になる
 import uiHtmlPath from './ui.html' with { type: 'file' };
 import xtermJsPath from 'xterm/lib/xterm.js' with { type: 'file' };
 import xtermCssPath from 'xterm/css/xterm.css' with { type: 'file' };
 import addonFitPath from '@xterm/addon-fit/lib/addon-fit.js' with { type: 'file' };
+import faviconPath from '../../assets/icon.svg' with { type: 'file' };
 
 type WS = ServerWebSocket<unknown>;
 
@@ -77,6 +78,9 @@ export class WebServer {
             Bun.file(addonFitPath),
             { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } },
           );
+        }
+        if (pathname === '/favicon.svg') {
+          return new Response(Bun.file(faviconPath), { headers: { 'Content-Type': 'image/svg+xml' } });
         }
 
         return new Response('Not Found', { status: 404 });
@@ -152,18 +156,21 @@ export class WebServer {
 
       case 'openExplorer': {
         const dir = this.resolveDir(id);
+        await portChecksIdle(); // 空き確認のソケットを子に引き継がせない (portChecker.ts 参照)
         this.openExplorer(dir);
         break;
       }
 
       case 'openVSCode': {
         const dir = this.resolveDir(id);
+        await portChecksIdle();
         this.openVSCode(dir);
         break;
       }
 
       case 'openTerminal': {
         const dir = this.resolveDir(id);
+        await portChecksIdle();
         this.openTerminal(dir);
         break;
       }
@@ -213,6 +220,7 @@ export class WebServer {
       }
 
       case 'openConfigFolder': {
+        await portChecksIdle();
         this.openExplorer(getConfigDir());
         break;
       }

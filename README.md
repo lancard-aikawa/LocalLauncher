@@ -3,6 +3,10 @@
 ローカル開発用 Web サーバーをまとめて管理するランチャーツール。  
 TUI ダッシュボード / ブラウザ Web UI の両方に対応しています。
 
+![Web UI。左に登録したサーバーと状態・ポート、右に選んだサーバーのログ](docs/images/web-ui.png)
+
+<sub>画面は架空のプロジェクトを並べたデモ環境です（`uv run demo/shoot.py` で撮り直せます）。</sub>
+
 ## 特徴
 
 - **複数ランタイム対応** — bun / node / npm / python / python3 / cmd / PowerShell / raw

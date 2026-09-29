@@ -1,11 +1,12 @@
 {
   "name": "local-launcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local web server launcher with TUI dashboard",
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --compile --target=bun --outfile local-launcher.exe"
+    "build": "bun build src/index.ts --compile --target=bun --outfile local-launcher.exe --windows-icon=assets/icon.ico --windows-title=LocalLauncher --windows-description=\"Local web server launcher\" --windows-version=1.0.1.0",
+    "icon": "uv run tools/make-icon.py"
   },
   "devDependencies": {
     "@types/bun": "^1.3.12"

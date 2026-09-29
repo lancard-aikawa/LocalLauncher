@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- LocalLauncher のアイコン。色は src/web/ui.html の :root に合わせる。
+       ICO は tools/make-icon.py でこのファイル (と icon-small.svg) から作る -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34345c"/>
+      <stop offset="1" stop-color="#20203a"/>
+    </linearGradient>
+  </defs>
+  <!-- 縁取りは暗い地 (ダークモードのタスクバー) で輪郭が消えないようにするため -->
+  <rect x="10" y="10" width="236" height="236" rx="52" fill="url(#bg)" stroke="#565690" stroke-width="4"/>
+  <!-- 登録したサーバーの行。点は状態 (起動中・起動中・停止) -->
+  <rect x="40" y="48" width="176" height="36" rx="12" fill="#3c3c68"/>
+  <rect x="40" y="100" width="176" height="36" rx="12" fill="#3c3c68"/>
+  <rect x="40" y="152" width="96" height="36" rx="12" fill="#3c3c68"/>
+  <circle cx="62" cy="66" r="9" fill="#4ade80"/>
+  <circle cx="62" cy="118" r="9" fill="#4ade80"/>
+  <circle cx="62" cy="170" r="9" fill="#64748b"/>
+  <rect x="82" y="61" width="80" height="10" rx="5" fill="#64748b"/>
+  <rect x="82" y="113" width="104" height="10" rx="5" fill="#64748b"/>
+  <!-- 起動ボタン -->
+  <circle cx="184" cy="184" r="46" fill="#7c3aed" stroke="#20203a" stroke-width="8"/>
+  <path d="M170 160 L206 184 L170 208 Z" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round"/>
+</svg>

@@ -2,7 +2,7 @@ import { loadConfig, saveConfig, upsertServer, removeServer, getConfigPath, getW
 import { ServerManager } from './manager';
 import { Dashboard } from './dashboard';
 import { promptServerForm } from './prompts';
-import { checkPortAvailable, findDuplicatePorts } from './portChecker';
+import { checkPortAvailable, findDuplicatePorts, portChecksIdle } from './portChecker';
 import { execSync } from 'child_process';
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
 import { basename, join } from 'path';
@@ -229,6 +229,7 @@ async function main() {
       try { writeFileSync(pidPath, String(process.pid), 'utf-8'); } catch {}
 
       if (doOpen) {
+        await portChecksIdle(); // ブラウザに空き確認のソケットを引き継がせない (portChecker.ts 参照)
         try {
           if (process.platform === 'win32') execSync(`start http://localhost:${webPort}`);
           else if (process.platform === 'darwin') execSync(`open http://localhost:${webPort}`);

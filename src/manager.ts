@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ServerConfig, ServerState, LauncherSettings } from './types';
-import { checkPortAvailable } from './portChecker';
+import { checkPortAvailable, portChecksIdle } from './portChecker';
 
 const execAsync = promisify(exec);
 const IS_WIN = process.platform === 'win32';
@@ -142,6 +142,7 @@ export class ServerManager {
       this.log(id, `▶ [terminal] ${cmdStr}`);
       if (config.cwd) this.log(id, `  cwd: ${config.cwd}`);
       this.log(id, 'ℹ 出力はターミナルウィンドウに表示されます');
+      await portChecksIdle();
       this.launchInTerminal(config);
       return;
     }
@@ -170,6 +171,8 @@ export class ServerManager {
     const [cmd, args] = buildCmd(config);
     dbg(`spawn: ${cmd} ${args.slice(0, 3).join(' ')}${args.length > 3 ? ' …' : ''}`);
 
+    // 他のサーバーの空き確認ソケットを子に引き継がせない (portChecker.ts 参照)
+    await portChecksIdle();
     const proc = spawn(cmd, args, {
       cwd:          config.cwd || undefined,
       env:          { ...process.env, ...config.env },
@@ -244,6 +247,7 @@ export class ServerManager {
       if (state.config.stopCommand) {
         // pause 等でハングする可能性があるため await せず起動し、
         // ポート解放 or タイムアウトを停止確定の主判定とする
+        await portChecksIdle();
         const stopDone = execAsync(state.config.stopCommand, {
           cwd: state.config.cwd,
           timeout: 15000,
@@ -275,6 +279,7 @@ export class ServerManager {
     // カスタム停止コマンドがあれば実行
     if (state.config.stopCommand) {
       try {
+        await portChecksIdle();
         await execAsync(state.config.stopCommand, {
           cwd: state.config.cwd,
           timeout: 15000,
